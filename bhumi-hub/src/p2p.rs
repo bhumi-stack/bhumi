@@ -1,4 +1,7 @@
-pub async fn handle(r: hyper::Request<hyper::body::Incoming>) -> bhumi_hub::http::HttpResult {
+pub async fn handle(
+    r: hyper::Request<hyper::body::Incoming>,
+    _key: fastn_id52::SecretKey,
+) -> bhumi_hub::http::HttpResult {
     let _peer_id = match get_peer_id(&r) {
         Ok(peer_id) => peer_id,
         Err(e) => return bhumi_hub::bad_request!("invalid cookie header: {e}"),
@@ -28,7 +31,7 @@ pub enum PeerIdError {
 }
 
 fn get_peer_id(r: &hyper::Request<hyper::body::Incoming>) -> Result<String, PeerIdError> {
-    let (peer_id, signature) = {
+    let (peer_id, _signature) = {
         let mut peer_id = None;
         let mut signature = None;
         if let Some(cookie_header) = r.headers().get(hyper::header::COOKIE) {

@@ -3,7 +3,7 @@ pub type HttpResult<E = std::io::Error> = Result<HttpResponse, E>;
 pub type HttpResponse =
     hyper::Response<http_body_util::combinators::BoxBody<hyper::body::Bytes, std::io::Error>>;
 
-pub async fn run_server() {
+pub async fn run_server(key: fastn_id52::SecretKey) -> HttpResult<HttpResponse> {
     let addr = "127.0.0.1:9000";
     let listener = match tokio::net::TcpListener::bind(&addr).await {
         Ok(listener) => listener,
@@ -17,7 +17,7 @@ pub async fn run_server() {
 
                     Ok((stream, _addr)) => {
                         tokio::task::spawn(handle_connection(
-                            stream,
+                            stream, key.clone()
                         ));
                     },
                     Err(e) => {
@@ -30,7 +30,7 @@ pub async fn run_server() {
     }
 }
 
-async fn handle_connection(stream: tokio::net::TcpStream) {
+async fn handle_connection(stream: tokio::net::TcpStream, key: fastn_id52::SecretKey) {
     let io = hyper_util::rt::TokioIo::new(stream);
 
     let builder =
@@ -54,7 +54,7 @@ async fn handle_connection(stream: tokio::net::TcpStream) {
                 // send multiple requests on the same connection as they are independent of each
                 // other. without pipelining, we will end up having effectively more open
                 // connections between edge and js/wasm.
-                hyper::service::service_fn(handle_request),
+                hyper::service::service_fn(|r| handle_request(r, key.clone())),
             );
     }
 
@@ -65,9 +65,12 @@ async fn handle_connection(stream: tokio::net::TcpStream) {
     }
 }
 
-async fn handle_request(r: hyper::Request<hyper::body::Incoming>) -> HttpResult {
+async fn handle_request(
+    r: hyper::Request<hyper::body::Incoming>,
+    key: fastn_id52::SecretKey,
+) -> HttpResult {
     match r.uri().path() {
-        "/_p2p" => bhumi_hub::p2p::handle(r).await,
+        "/_p2p" => bhumi_hub::p2p::handle(r, key).await,
         t => bhumi_hub::not_found!("not found: {t}"),
     }
 }

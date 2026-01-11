@@ -1,5 +1,5 @@
 [workspace]
-members = ["bhumi-hub"]
+members = ["bhumi-hub", "fastn-id52"]
 exclude = []
 resolver = "2"
 
@@ -44,3 +44,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 cookie = "0.18"
 thiserror = "2"
+fastn-id52 = { path = "fastn-id52" }
+clap = { version = "4", features = ["derive"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+data-encoding = "2"
+rand = "0.8"
+keyring = "3"
