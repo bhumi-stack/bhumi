@@ -5,4 +5,4 @@ mod id52;
 mod p2p;
 mod steel;
 
-pub use id52::{crate_key, read_key};
+pub use id52::{create_key, read_key};

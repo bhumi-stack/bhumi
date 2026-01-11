@@ -17,11 +17,18 @@ enum Commands {
 #[tokio::main]
 async fn main() {
     let cli: Cli = clap::Parser::parse();
+    let bhumi_home = std::env::var("BHUMI_HOME").unwrap_or_else(|_| {
+        dirs::home_dir()
+            .expect("Could not determine home directory")
+            .join(".bhumi")
+            .to_string_lossy()
+            .to_string()
+    });
 
     match cli.command {
-        Commands::CreateKey => bhumi_hub::crate_key(),
+        Commands::CreateKey => bhumi_hub::create_key(&bhumi_home),
         Commands::Run => {
-            let key = match bhumi_hub::read_key() {
+            let key = match bhumi_hub::read_key(&bhumi_home) {
                 Ok(key) => key,
                 Err(e) => {
                     eprintln!("Failed to read key: {e}");

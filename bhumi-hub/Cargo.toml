@@ -14,3 +14,4 @@ cookie.workspace = true
 thiserror.workspace = true
 fastn-id52.workspace = true
 clap.workspace = true
+dirs.workspace = true
