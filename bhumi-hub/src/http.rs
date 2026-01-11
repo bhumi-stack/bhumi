@@ -66,15 +66,13 @@ async fn handle_connection(stream: tokio::net::TcpStream) {
 }
 
 async fn handle_request(r: hyper::Request<hyper::body::Incoming>) -> HttpResult {
-    let path = r.uri().path().replace('/', "");
-    match path.as_ref() {
-        // _p2p will handle peer to peer over http for now
-        "_p2p" => bhumi_hub::p2p::handle_peer_command(r).await,
-        t => Ok(bhumi_hub::not_found!("not found: {t}")),
+    match r.uri().path() {
+        "/_p2p" => bhumi_hub::p2p::handle(r).await,
+        t => bhumi_hub::not_found!("not found: {t}"),
     }
 }
 
-pub fn json<T: serde::Serialize>(o: T) -> HttpResponse {
+pub fn json<T: serde::Serialize>(o: T) -> HttpResult {
     let bytes = match serde_json::to_vec(&o) {
         Ok(v) => v,
         Err(e) => return server_error_(format!("failed to serialize json: {e:?}")),
@@ -82,11 +80,11 @@ pub fn json<T: serde::Serialize>(o: T) -> HttpResponse {
     bytes_to_resp(bytes, hyper::StatusCode::OK)
 }
 
-pub fn server_error_(s: String) -> HttpResponse {
+pub fn server_error_(s: String) -> HttpResult {
     bytes_to_resp(s.into_bytes(), hyper::StatusCode::INTERNAL_SERVER_ERROR)
 }
 
-pub fn bytes_to_resp(bytes: Vec<u8>, status: hyper::StatusCode) -> HttpResponse {
+pub fn bytes_to_resp(bytes: Vec<u8>, status: hyper::StatusCode) -> HttpResult {
     use http_body_util::BodyExt;
 
     let mut r = hyper::Response::new(
@@ -95,14 +93,14 @@ pub fn bytes_to_resp(bytes: Vec<u8>, status: hyper::StatusCode) -> HttpResponse 
             .boxed(),
     );
     *r.status_mut() = status;
-    r
+    Ok(r)
 }
 
-pub fn not_found_(m: String) -> HttpResponse {
+pub fn not_found_(m: String) -> HttpResult {
     bytes_to_resp(m.into_bytes(), hyper::StatusCode::NOT_FOUND)
 }
 
-pub fn bad_request_(m: String) -> HttpResponse {
+pub fn bad_request_(m: String) -> HttpResult {
     bytes_to_resp(m.into_bytes(), hyper::StatusCode::BAD_REQUEST)
 }
 
@@ -127,8 +125,11 @@ macro_rules! bad_request {
     }};
 }
 
-pub fn redirect<S: AsRef<str>>(url: S) -> HttpResponse {
+pub fn redirect<S: AsRef<str>>(url: S) -> HttpResult {
     let mut r = bytes_to_resp(vec![], hyper::StatusCode::PERMANENT_REDIRECT);
-    *r.headers_mut().get_mut(hyper::header::LOCATION).unwrap() = url.as_ref().parse().unwrap();
+    if let Ok(ref mut r) = r {
+        *r.headers_mut().get_mut(hyper::header::LOCATION).unwrap() = url.as_ref().parse().unwrap();
+    }
+
     r
 }
