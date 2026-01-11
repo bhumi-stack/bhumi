@@ -28,10 +28,14 @@ pub enum PeerIdError {
     PeerIdCookieMissing,
     #[error("SignatureCookieMissing")]
     SignatureCookieMissing,
+    #[error("verification failed")]
+    VerificationFailed(fastn_id52::SignatureVerificationError),
 }
 
-fn get_peer_id(r: &hyper::Request<hyper::body::Incoming>) -> Result<String, PeerIdError> {
-    let (peer_id, _signature) = {
+fn get_peer_id(
+    r: &hyper::Request<hyper::body::Incoming>,
+) -> Result<fastn_id52::PublicKey, PeerIdError> {
+    let (peer_id, signature): (fastn_id52::PublicKey, fastn_id52::Signature) = {
         let mut peer_id = None;
         let mut signature = None;
         if let Some(cookie_header) = r.headers().get(hyper::header::COOKIE) {
@@ -57,9 +61,15 @@ fn get_peer_id(r: &hyper::Request<hyper::body::Incoming>) -> Result<String, Peer
         if signature.is_none() {
             return Err(PeerIdError::SignatureCookieMissing);
         }
-        (peer_id.unwrap(), signature.unwrap())
+        (
+            std::str::FromStr::from_str(&peer_id.unwrap()).unwrap(),
+            std::str::FromStr::from_str(&signature.unwrap()).unwrap(),
+        )
     };
 
-    // todo: signature verification
+    peer_id
+        .verify(peer_id.to_string().as_bytes(), &signature)
+        .map_err(PeerIdError::VerificationFailed)?;
+
     Ok(peer_id)
 }

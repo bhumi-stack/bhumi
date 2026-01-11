@@ -24,6 +24,7 @@ async fn main() {
             .to_string_lossy()
             .to_string()
     });
+    std::fs::create_dir_all(&bhumi_home).unwrap();
 
     match cli.command {
         Commands::CreateKey => bhumi_hub::create_key(&bhumi_home),

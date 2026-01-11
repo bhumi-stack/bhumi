@@ -9,7 +9,7 @@ pub async fn run_server(key: fastn_id52::SecretKey) -> HttpResult<HttpResponse> 
         Ok(listener) => listener,
         Err(e) => panic!("failed to bind to {addr}: {e}"),
     };
-    println!("Listening on http://{addr}.");
+    println!("Listening on http://{addr}, hub_id: {}", key.id52());
     loop {
         tokio::select! {
             val = listener.accept() => {
