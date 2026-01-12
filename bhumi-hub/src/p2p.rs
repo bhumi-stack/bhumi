@@ -12,13 +12,23 @@ pub async fn handle(
         Err(e) => return bhumi_hub::bad_request!("failed to read body: {e}"),
     };
 
-    let _command = serde_json::from_slice::<Command>(&body)?;
-
-    todo!()
+    match serde_json::from_slice::<Command>(&body)? {
+        Command::Render(path) => match bhumi_hub::render(&path).await {
+            Ok(o) => bhumi_hub::http::json(o),
+            Err(e) => bhumi_hub::bad_request!("failed to render: {e}"),
+        },
+        Command::GetDependencies(input) => match bhumi_hub::get_dependencies(input).await {
+            Ok(o) => bhumi_hub::http::json(o),
+            Err(e) => bhumi_hub::bad_request!("failed to get dependencies: {e}"),
+        },
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-pub enum Command {}
+pub enum Command {
+    Render(String),
+    GetDependencies(bhumi_hub::DependenciesInput),
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum PeerIdError {
@@ -67,6 +77,8 @@ fn get_peer_id(
         )
     };
 
+    // FIXME(security): for now the signature is that of the peer_id itself,
+    //                  before going live we will add replay attack mitigation
     peer_id
         .verify(peer_id.to_string().as_bytes(), &signature)
         .map_err(PeerIdError::VerificationFailed)?;
