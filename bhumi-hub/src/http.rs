@@ -3,7 +3,10 @@ pub type HttpResult<E = std::io::Error> = Result<HttpResponse, E>;
 pub type HttpResponse =
     hyper::Response<http_body_util::combinators::BoxBody<hyper::body::Bytes, std::io::Error>>;
 
-pub async fn run_server(key: fastn_id52::SecretKey) -> HttpResult<HttpResponse> {
+pub async fn run_server(
+    key: fastn_id52::SecretKey,
+    home: &'static str,
+) -> HttpResult<HttpResponse> {
     let addr = "127.0.0.1:9000";
     let listener = match tokio::net::TcpListener::bind(&addr).await {
         Ok(listener) => listener,
@@ -17,7 +20,7 @@ pub async fn run_server(key: fastn_id52::SecretKey) -> HttpResult<HttpResponse> 
 
                     Ok((stream, _addr)) => {
                         tokio::task::spawn(handle_connection(
-                            stream, key.clone()
+                            stream, key.clone(), home,
                         ));
                     },
                     Err(e) => {
@@ -30,7 +33,11 @@ pub async fn run_server(key: fastn_id52::SecretKey) -> HttpResult<HttpResponse> 
     }
 }
 
-async fn handle_connection(stream: tokio::net::TcpStream, key: fastn_id52::SecretKey) {
+async fn handle_connection(
+    stream: tokio::net::TcpStream,
+    key: fastn_id52::SecretKey,
+    home: &'static str,
+) {
     let io = hyper_util::rt::TokioIo::new(stream);
 
     let builder =
@@ -54,7 +61,7 @@ async fn handle_connection(stream: tokio::net::TcpStream, key: fastn_id52::Secre
                 // send multiple requests on the same connection as they are independent of each
                 // other. without pipelining, we will end up having effectively more open
                 // connections between edge and js/wasm.
-                hyper::service::service_fn(|r| handle_request(r, key.clone())),
+                hyper::service::service_fn(|r| handle_request(r, key.clone(), home)),
             );
     }
 
@@ -68,9 +75,10 @@ async fn handle_connection(stream: tokio::net::TcpStream, key: fastn_id52::Secre
 async fn handle_request(
     r: hyper::Request<hyper::body::Incoming>,
     key: fastn_id52::SecretKey,
+    home: &'static str,
 ) -> HttpResult {
     match r.uri().path() {
-        "/_p2p" => bhumi_hub::p2p::handle(r, key).await,
+        "/_p2p" => bhumi_hub::p2p::handle(r, key, home).await,
         t => bhumi_hub::not_found!("not found: {t}"),
     }
 }

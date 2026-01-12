@@ -1,6 +1,7 @@
 pub async fn handle(
     r: hyper::Request<hyper::body::Incoming>,
     _key: fastn_id52::SecretKey,
+    home: &'static str,
 ) -> bhumi_hub::http::HttpResult {
     let _peer_id = match get_peer_id(&r) {
         Ok(peer_id) => peer_id,
@@ -13,7 +14,7 @@ pub async fn handle(
     };
 
     match serde_json::from_slice::<Command>(&body)? {
-        Command::Render(path) => match bhumi_hub::render(&path).await {
+        Command::Render(path) => match bhumi_hub::render(&path, home).await {
             Ok(o) => bhumi_hub::http::json(o),
             Err(e) => bhumi_hub::bad_request!("failed to render: {e}"),
         },

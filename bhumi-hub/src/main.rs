@@ -36,7 +36,9 @@ async fn main() {
                     std::process::exit(1);
                 }
             };
-            bhumi_hub::http::run_server(key).await.unwrap();
+            bhumi_hub::http::run_server(key, bhumi_home.leak())
+                .await
+                .unwrap();
         }
     }
 }
