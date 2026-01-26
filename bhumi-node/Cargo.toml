@@ -9,6 +9,14 @@ repository.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
 
+[[example]]
+name = "smart-switch"
+path = "examples/smart-switch.rs"
+
+[[example]]
+name = "switch-controller"
+path = "examples/switch-controller.rs"
+
 [dependencies]
 bhumi-proto = { workspace = true }
 fastn-id52 = { workspace = true }

@@ -1,7 +1,7 @@
-//! Switch Owner - CLI to control smart switches
+//! Switch Controller - CLI to control smart switches
 //!
 //! Usage:
-//!   OWNER_HOME=/tmp/switch-owner cargo run --example switch-owner -p bhumi-person -- <command>
+//!   CONTROLLER_HOME=/tmp/switch-controller cargo run --example switch-controller -p bhumi-node -- <command>
 //!
 //! Commands:
 //!   pair <invite-token> [alias]  - Pair with a switch
@@ -15,14 +15,14 @@
 //!   <switch> invite delete <id>  - Delete an invite
 
 use std::path::PathBuf;
-use bhumi_person::{Person, json};
+use bhumi_node::{Node, NodeConfig, json};
 
 const RELAY_ADDR: &str = "127.0.0.1:8443";
 
 fn get_home() -> PathBuf {
-    std::env::var("OWNER_HOME")
+    std::env::var("CONTROLLER_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/tmp/switch-owner"))
+        .unwrap_or_else(|_| PathBuf::from("/tmp/switch-controller"))
 }
 
 #[tokio::main]
@@ -35,50 +35,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let home = get_home();
-    let mut person = Person::new(home);
+    let config = NodeConfig {
+        kind: "cli-controller".to_string(),
+        location: String::new(),
+    };
+    let mut node = Node::new(home, config);
 
     match args[1].as_str() {
         "pair" => {
             if args.len() < 3 {
-                eprintln!("Usage: switch-owner pair <invite-token> [alias]");
+                eprintln!("Usage: switch-controller pair <invite-token> [alias]");
                 std::process::exit(1);
             }
             let token = &args[2];
             let alias = args.get(3).map(|s| s.as_str()).unwrap_or("switch");
-            cmd_pair(&mut person, token, alias).await?;
+            cmd_pair(&mut node, token, alias).await?;
         }
         "list" => {
-            cmd_list(&person);
+            cmd_list(&node);
         }
         switch_alias => {
             if args.len() < 3 {
-                eprintln!("Usage: switch-owner <switch> <command> [args...]");
+                eprintln!("Usage: switch-controller <switch> <command> [args...]");
                 std::process::exit(1);
             }
             let cmd = &args[2];
             match cmd.as_str() {
-                "status" => cmd_status(&mut person, switch_alias).await?,
-                "on" => cmd_on(&mut person, switch_alias).await?,
-                "off" => cmd_off(&mut person, switch_alias).await?,
-                "toggle" => cmd_toggle(&mut person, switch_alias).await?,
+                "status" => cmd_status(&mut node, switch_alias).await?,
+                "on" => cmd_on(&mut node, switch_alias).await?,
+                "off" => cmd_off(&mut node, switch_alias).await?,
+                "toggle" => cmd_toggle(&mut node, switch_alias).await?,
                 "invite" => {
                     if args.len() < 4 {
-                        eprintln!("Usage: switch-owner <switch> invite <create|list|delete>");
+                        eprintln!("Usage: switch-controller <switch> invite <create|list|delete>");
                         std::process::exit(1);
                     }
                     match args[3].as_str() {
                         "create" => {
                             let alias = args.get(4).map(|s| s.as_str()).unwrap_or("user");
                             let role = args.get(5).map(|s| s.as_str()).unwrap_or("reader");
-                            cmd_invite_create(&mut person, switch_alias, alias, role).await?;
+                            cmd_invite_create(&mut node, switch_alias, alias, role).await?;
                         }
-                        "list" => cmd_invite_list(&mut person, switch_alias).await?,
+                        "list" => cmd_invite_list(&mut node, switch_alias).await?,
                         "delete" => {
                             if args.len() < 5 {
-                                eprintln!("Usage: switch-owner <switch> invite delete <id>");
+                                eprintln!("Usage: switch-controller <switch> invite delete <id>");
                                 std::process::exit(1);
                             }
-                            cmd_invite_delete(&mut person, switch_alias, &args[4]).await?;
+                            cmd_invite_delete(&mut node, switch_alias, &args[4]).await?;
                         }
                         _ => {
                             eprintln!("Unknown invite command: {}", args[3]);
@@ -98,7 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn print_usage() {
-    eprintln!("Switch Owner - Control your smart switches");
+    eprintln!("Switch Controller - Control your smart switches");
     eprintln!();
     eprintln!("Commands:");
     eprintln!("  pair <token> [alias]     Pair with a switch");
@@ -112,20 +116,20 @@ fn print_usage() {
     eprintln!("  <switch> invite delete <id>");
 }
 
-async fn cmd_pair(person: &mut Person, token: &str, alias: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn cmd_pair(node: &mut Node, token: &str, alias: &str) -> Result<(), Box<dyn std::error::Error>> {
     println!("Pairing with switch as \"{}\"...", alias);
-    person.pair(RELAY_ADDR, token, alias).await?;
+    node.pair(RELAY_ADDR, token, alias).await?;
     println!("Paired successfully!");
     Ok(())
 }
 
-fn cmd_list(person: &Person) {
-    let peers: Vec<_> = person.list_peers().collect();
+fn cmd_list(node: &Node) {
+    let peers: Vec<_> = node.list_peers().collect();
     if peers.is_empty() {
         println!("No paired switches.");
         println!();
         println!("To pair with a switch, run:");
-        println!("  switch-owner pair <invite-token> [alias]");
+        println!("  switch-controller pair <invite-token> [alias]");
     } else {
         println!("Paired switches:");
         for (id52, peer) in peers {
@@ -135,36 +139,36 @@ fn cmd_list(person: &Person) {
     }
 }
 
-async fn cmd_status(person: &mut Person, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let result = person.send_command(RELAY_ADDR, switch, "status", json!({})).await?;
+async fn cmd_status(node: &mut Node, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let result = node.send(RELAY_ADDR, switch, "status", json!({})).await?;
     let is_on = result.get("is_on").and_then(|v| v.as_bool()).unwrap_or(false);
     println!("Switch \"{}\" is {}", switch, if is_on { "ON" } else { "OFF" });
     Ok(())
 }
 
-async fn cmd_on(person: &mut Person, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let result = person.send_command(RELAY_ADDR, switch, "on", json!({})).await?;
+async fn cmd_on(node: &mut Node, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let result = node.send(RELAY_ADDR, switch, "on", json!({})).await?;
     let is_on = result.get("is_on").and_then(|v| v.as_bool()).unwrap_or(false);
     println!("Switch \"{}\" is now {}", switch, if is_on { "ON" } else { "OFF" });
     Ok(())
 }
 
-async fn cmd_off(person: &mut Person, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let result = person.send_command(RELAY_ADDR, switch, "off", json!({})).await?;
+async fn cmd_off(node: &mut Node, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let result = node.send(RELAY_ADDR, switch, "off", json!({})).await?;
     let is_on = result.get("is_on").and_then(|v| v.as_bool()).unwrap_or(false);
     println!("Switch \"{}\" is now {}", switch, if is_on { "ON" } else { "OFF" });
     Ok(())
 }
 
-async fn cmd_toggle(person: &mut Person, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let result = person.send_command(RELAY_ADDR, switch, "toggle", json!({})).await?;
+async fn cmd_toggle(node: &mut Node, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let result = node.send(RELAY_ADDR, switch, "toggle", json!({})).await?;
     let is_on = result.get("is_on").and_then(|v| v.as_bool()).unwrap_or(false);
     println!("Switch \"{}\" is now {}", switch, if is_on { "ON" } else { "OFF" });
     Ok(())
 }
 
-async fn cmd_invite_create(person: &mut Person, switch: &str, alias: &str, role: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let result = person.send_command(RELAY_ADDR, switch, "invite/create", json!({
+async fn cmd_invite_create(node: &mut Node, switch: &str, alias: &str, role: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let result = node.send(RELAY_ADDR, switch, "invite/create", json!({
         "alias": alias,
         "role": role
     })).await?;
@@ -177,8 +181,8 @@ async fn cmd_invite_create(person: &mut Person, switch: &str, alias: &str, role:
     Ok(())
 }
 
-async fn cmd_invite_list(person: &mut Person, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let result = person.send_command(RELAY_ADDR, switch, "invite/list", json!({})).await?;
+async fn cmd_invite_list(node: &mut Node, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let result = node.send(RELAY_ADDR, switch, "invite/list", json!({})).await?;
     let invites = result.get("invites").and_then(|v| v.as_array());
     match invites {
         Some(list) if !list.is_empty() => {
@@ -197,8 +201,8 @@ async fn cmd_invite_list(person: &mut Person, switch: &str) -> Result<(), Box<dy
     Ok(())
 }
 
-async fn cmd_invite_delete(person: &mut Person, switch: &str, id: &str) -> Result<(), Box<dyn std::error::Error>> {
-    person.send_command(RELAY_ADDR, switch, "invite/delete", json!({ "id": id })).await?;
+async fn cmd_invite_delete(node: &mut Node, switch: &str, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    node.send(RELAY_ADDR, switch, "invite/delete", json!({ "id": id })).await?;
     println!("Deleted invite {}.", id);
     Ok(())
 }

@@ -1,57 +1,32 @@
-//! Bhumi Device - For IoT devices on the Bhumi P2P network
-//!
-//! This crate provides the Device type for building IoT applications.
-//! Devices can register command handlers and respond to requests from
-//! paired people (owners/writers/readers).
-//!
-//! # Example
-//!
-//! ```ignore
-//! use bhumi_device::{Device, DeviceConfig, json};
-//!
-//! #[tokio::main]
-//! async fn main() {
-//!     let config = DeviceConfig {
-//!         kind: "smart-switch".to_string(),
-//!         location: "home.bedroom".to_string(),
-//!     };
-//!     let mut device = Device::new("/tmp/my-device".into(), config);
-//!
-//!     device.command("status", |_ctx, _state, _args| {
-//!         Ok(json!({ "is_on": false }))
-//!     });
-//!
-//!     device.run("127.0.0.1:8443").await.unwrap();
-//! }
-//! ```
+//! Unified Node - can both send and receive commands
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-// Re-export from bhumi-node
-pub use bhumi_node::{
-    Connection, CommandContext, Request, Response, IncomingMessage,
-    DeviceState, PeerRecord, InviteRecord, PeerRole, PreimageLookup,
+use crate::{
+    Connection, CommandContext, Request, Response,
+    DeviceState, PeerRecord, PeerRole, PreimageLookup,
     SecretKey, PublicKey, JsonValue, json,
-    HandshakeInit, HandshakeComplete, HANDSHAKE_ACCEPTED, HANDSHAKE_REJECTED, SEND_OK,
+    HandshakeInit, HandshakeComplete, HANDSHAKE_ACCEPTED, HANDSHAKE_REJECTED,
     DEV_HANDSHAKE_INIT,
     load_or_create, create_invite_token, parse_invite_token,
 };
 
-/// Device configuration - metadata about the device
+/// Node configuration
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct DeviceConfig {
-    /// Kind of device (e.g., "smart-switch", "thermostat", "camera")
+pub struct NodeConfig {
+    /// Kind of node (e.g., "smart-switch", "mobile-app", "thermostat")
     pub kind: String,
-    /// Location in dotted notation (e.g., "home-1.bedroom", "office.desk")
+    /// Optional location in dotted notation (e.g., "home.bedroom")
+    #[serde(default)]
     pub location: String,
 }
 
-impl Default for DeviceConfig {
+impl Default for NodeConfig {
     fn default() -> Self {
         Self {
             kind: "unknown".to_string(),
-            location: "".to_string(),
+            location: String::new(),
         }
     }
 }
@@ -59,32 +34,33 @@ impl Default for DeviceConfig {
 /// Command handler function type
 pub type CommandHandler<S> = Box<dyn Fn(&CommandContext, &S, JsonValue) -> Result<JsonValue, String> + Send + Sync>;
 
-/// A Bhumi IoT device
-pub struct Device<S: Send + Sync + 'static = ()> {
+/// A Bhumi network node - unified type for devices, apps, and people
+pub struct Node<S: Send + Sync + 'static = ()> {
     secret_key: SecretKey,
     pub public_key: PublicKey,
     state: DeviceState,
     state_path: PathBuf,
-    config: DeviceConfig,
+    config: NodeConfig,
+    #[allow(dead_code)]
     config_path: PathBuf,
     relay_addr: Option<String>,
     handlers: HashMap<String, CommandHandler<S>>,
     app_state: Option<S>,
 }
 
-impl Device<()> {
-    /// Create or load a device with no app state
-    pub fn new(home: PathBuf, config: DeviceConfig) -> Self {
+impl Node<()> {
+    /// Create or load a node with no app state
+    pub fn new(home: PathBuf, config: NodeConfig) -> Self {
         Self::with_state(home, config, ())
     }
 }
 
-impl<S: Send + Sync + 'static> Device<S> {
-    /// Create or load a device with custom app state
-    pub fn with_state(home: PathBuf, config: DeviceConfig, app_state: S) -> Self {
+impl<S: Send + Sync + 'static> Node<S> {
+    /// Create or load a node with custom app state
+    pub fn with_state(home: PathBuf, config: NodeConfig, app_state: S) -> Self {
         std::fs::create_dir_all(&home).expect("failed to create home directory");
 
-        let (secret_key, public_key) = bhumi_node::load_or_create(&home);
+        let (secret_key, public_key) = load_or_create(&home);
         let state_path = home.join("state.json");
         let config_path = home.join("config.json");
         let state = DeviceState::load(&state_path);
@@ -112,17 +88,17 @@ impl<S: Send + Sync + 'static> Device<S> {
         }
     }
 
-    /// Get the device's public key as id52 string
+    /// Get the node's public key as id52 string
     pub fn id52(&self) -> String {
         self.public_key.to_string()
     }
 
-    /// Get the device's kind
+    /// Get the node's kind
     pub fn kind(&self) -> &str {
         &self.config.kind
     }
 
-    /// Get the device's location
+    /// Get the node's location
     pub fn location(&self) -> &str {
         &self.config.location
     }
@@ -135,14 +111,14 @@ impl<S: Send + Sync + 'static> Device<S> {
         self.handlers.insert(name.to_string(), Box::new(handler));
     }
 
-    /// Create an invite
+    /// Create an invite for another node to pair with us
     pub fn create_invite(&mut self, alias: &str, role: PeerRole) -> String {
         let (invite, _commit) = self.state.create_invite(alias, role);
         self.save();
         create_invite_token(&self.public_key.to_bytes(), &invite.preimage)
     }
 
-    /// Check if device has any peers or invites
+    /// Check if node has any peers or invites
     pub fn is_paired(&self) -> bool {
         !self.state.peers.is_empty() || !self.state.invites.is_empty()
     }
@@ -157,6 +133,11 @@ impl<S: Send + Sync + 'static> Device<S> {
         self.state.invites.len()
     }
 
+    /// List all paired peers
+    pub fn list_peers(&self) -> impl Iterator<Item = ([u8; 32], &PeerRecord)> {
+        self.state.peers.iter().map(|(k, v)| (*k, v))
+    }
+
     fn save(&self) {
         self.state.save(&self.state_path);
     }
@@ -165,7 +146,128 @@ impl<S: Send + Sync + 'static> Device<S> {
         self.state.get_all_commits()
     }
 
-    /// Run the device, connecting to relay and handling messages
+    // =========================================================================
+    // Client-side: pair with another node, send commands
+    // =========================================================================
+
+    /// Pair with another node using an invite token
+    pub async fn pair(
+        &mut self,
+        relay_addr: &str,
+        token: &str,
+        alias: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Parse invite token
+        let (their_id52, their_preimage) = parse_invite_token(token)?;
+
+        // Accept the invite (creates pending peer record)
+        let (my_preimage, my_commit) = self.state.accept_invite(their_id52, their_preimage, alias);
+        self.save();
+
+        // Connect to relay
+        let mut conn = Connection::connect(relay_addr, &self.secret_key, vec![my_commit]).await?;
+
+        // Send HANDSHAKE_INIT
+        let init = HandshakeInit {
+            sender_id52: self.public_key.to_bytes(),
+            preimage_for_peer: my_preimage,
+            relay_url: relay_addr.to_string(),
+        };
+
+        let result = conn.send(their_id52, their_preimage, init.to_bytes()).await?;
+
+        // Check for HANDSHAKE_COMPLETE
+        if result.status == bhumi_proto::SEND_OK {
+            let complete = HandshakeComplete::from_bytes(&result.payload)?;
+
+            if complete.status == HANDSHAKE_ACCEPTED {
+                let relay = if complete.relay_url.is_empty() {
+                    None
+                } else {
+                    Some(complete.relay_url)
+                };
+
+                self.state.complete_handshake_as_acceptor(
+                    &their_id52,
+                    complete.preimage_for_peer,
+                    relay,
+                );
+                self.save();
+
+                Ok(())
+            } else {
+                Err("handshake rejected".into())
+            }
+        } else {
+            Err(format!("send failed with status {}", result.status).into())
+        }
+    }
+
+    /// Send a command to a paired peer
+    pub async fn send(
+        &mut self,
+        relay_addr: &str,
+        peer_alias: &str,
+        cmd: &str,
+        args: JsonValue,
+    ) -> Result<JsonValue, Box<dyn std::error::Error>> {
+        // Find the peer
+        let (peer_id52, _) = self.state.find_peer_by_alias(peer_alias)
+            .ok_or_else(|| format!("peer '{}' not found", peer_alias))?;
+
+        // Get preimage for this peer
+        let preimage = self.state.get_peer_preimage(&peer_id52)
+            .ok_or("no preimage for peer")?;
+
+        // Connect to relay
+        let mut conn = Connection::connect(relay_addr, &self.secret_key, self.get_commits()).await?;
+
+        // Create request
+        let request = Request::with_args(cmd, args);
+        let payload = serde_json::to_vec(&request)?;
+
+        // Send command
+        let result = conn.send(peer_id52, preimage, payload).await?;
+
+        if result.status != bhumi_proto::SEND_OK {
+            return Err(format!("send failed with status {}", result.status).into());
+        }
+
+        // Parse response (may have new preimage appended)
+        let response_len = result.payload.len();
+        let (response_bytes, new_preimage) = if response_len > 32 {
+            match serde_json::from_slice::<Response>(&result.payload) {
+                Ok(_) => (result.payload.as_slice(), None),
+                Err(_) => {
+                    let split = response_len - 32;
+                    let new_pre: [u8; 32] = result.payload[split..].try_into().unwrap();
+                    (&result.payload[..split], Some(new_pre))
+                }
+            }
+        } else {
+            (result.payload.as_slice(), None)
+        };
+
+        let response: Response = serde_json::from_slice(response_bytes)?;
+
+        // Update preimage if we got a new one
+        if let Some(new_pre) = new_preimage {
+            self.state.update_peer_preimage(&peer_id52, new_pre);
+            self.save();
+        }
+
+        if response.ok {
+            Ok(response.data.unwrap_or(JsonValue::Null))
+        } else {
+            Err(response.error.unwrap_or_else(|| "unknown error".to_string()).into())
+        }
+    }
+
+    // =========================================================================
+    // Server-side: run and handle incoming messages
+    // =========================================================================
+
+    /// Run the node, connecting to relay and handling incoming messages
     pub async fn run(&mut self, relay_addr: &str) -> Result<(), Box<dyn std::error::Error>> {
         self.relay_addr = Some(relay_addr.to_string());
         let mut conn = Connection::connect(relay_addr, &self.secret_key, self.get_commits()).await?;
@@ -268,8 +370,8 @@ impl<S: Send + Sync + 'static> Device<S> {
 
     fn dispatch_command(&mut self, ctx: &CommandContext, req: &Request) -> Response {
         match req.cmd.as_str() {
-            // Device info - anyone can read
-            "device/info" => {
+            // Node info - anyone can read
+            "node/info" => {
                 Response::ok(json!({
                     "kind": self.config.kind,
                     "location": self.config.location,

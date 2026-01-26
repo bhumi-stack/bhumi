@@ -1,5 +1,5 @@
 [workspace]
-members = ["bhumi-device", "bhumi-hub", "bhumi-node", "bhumi-person", "bhumi-proto", "bhumi-relay", "fastn-id52"]
+members = ["bhumi-hub", "bhumi-node", "bhumi-proto", "bhumi-relay", "fastn-id52"]
 exclude = []
 resolver = "2"
 

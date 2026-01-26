@@ -1,14 +1,67 @@
-//! Bhumi Node - Common functionality for Bhumi P2P network participants
+//! Bhumi Node - Unified P2P network node
 //!
-//! This crate provides the foundational types and functions used by both
-//! bhumi-device (for IoT devices) and bhumi-person (for people/apps).
+//! This crate provides the Node type for building any participant on the
+//! Bhumi P2P network - whether it's an IoT device, mobile app, or server.
+//!
+//! # Example - Device (listens for commands)
+//!
+//! ```ignore
+//! use bhumi_node::{Node, NodeConfig, PeerRole, json};
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let config = NodeConfig {
+//!         kind: "smart-switch".to_string(),
+//!         location: "home.bedroom".to_string(),
+//!     };
+//!     let mut node = Node::new("/tmp/my-device".into(), config);
+//!
+//!     // Create invite for first owner
+//!     if !node.is_paired() {
+//!         let token = node.create_invite("owner", PeerRole::Owner);
+//!         println!("Invite: {}", token);
+//!     }
+//!
+//!     // Register command handlers
+//!     node.command("status", |_ctx, _state, _args| {
+//!         Ok(json!({ "is_on": false }))
+//!     });
+//!
+//!     // Run and handle incoming messages
+//!     node.run("127.0.0.1:8443").await.unwrap();
+//! }
+//! ```
+//!
+//! # Example - Client (sends commands)
+//!
+//! ```ignore
+//! use bhumi_node::{Node, NodeConfig, json};
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let config = NodeConfig {
+//!         kind: "mobile-app".to_string(),
+//!         ..Default::default()
+//!     };
+//!     let mut node = Node::new("/tmp/my-app".into(), config);
+//!
+//!     // Pair with a device
+//!     node.pair("127.0.0.1:8443", "INVITE_TOKEN", "my-switch").await.unwrap();
+//!
+//!     // Send commands
+//!     let result = node.send("127.0.0.1:8443", "my-switch", "status", json!({})).await.unwrap();
+//!     println!("Status: {:?}", result);
+//! }
+//! ```
 
 mod connection;
 mod identity;
+mod node;
 mod state;
 
 pub use connection::Connection;
 pub use identity::{load_or_create_identity, load_or_create, bhumi_home};
+pub use node::{Node, NodeConfig, CommandHandler};
 pub use state::{
     DeviceState, PeerRecord, InviteRecord, PeerRole, PreimageLookup,
     create_invite_token, parse_invite_token,

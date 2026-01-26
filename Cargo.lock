@@ -93,18 +93,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d809780667f4410e7c41b07f52439b94d2bdf8528eeedc287fa38d3b7f95d82"
 
 [[package]]
-name = "bhumi-device"
-version = "0.1.0"
-dependencies = [
- "bhumi-node",
- "bhumi-proto",
- "data-encoding",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "bhumi-hub"
 version = "0.1.0"
 dependencies = [
@@ -136,18 +124,6 @@ dependencies = [
  "sha2",
  "tokio",
  "tokio-rustls",
-]
-
-[[package]]
-name = "bhumi-person"
-version = "0.1.0"
-dependencies = [
- "bhumi-node",
- "bhumi-proto",
- "data-encoding",
- "serde",
- "serde_json",
- "tokio",
 ]
 
 [[package]]
