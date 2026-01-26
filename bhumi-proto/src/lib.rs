@@ -10,6 +10,7 @@ pub const MSG_DELIVER: u16 = 0x0004;
 pub const MSG_ACK: u16 = 0x0005;
 pub const MSG_KEEPALIVE: u16 = 0x0006;
 pub const MSG_SEND_RESULT: u16 = 0x0007;
+pub const MSG_UPDATE_COMMITS: u16 = 0x0008;
 
 // SEND_RESULT status codes
 pub const SEND_OK: u8 = 0;
@@ -17,6 +18,16 @@ pub const SEND_ERR_NOT_CONNECTED: u8 = 1;
 pub const SEND_ERR_INVALID_PREIMAGE: u8 = 2;
 pub const SEND_ERR_TIMEOUT: u8 = 3;
 pub const SEND_ERR_DISCONNECTED: u8 = 4;
+
+// Device protocol message types (inside encrypted payload)
+pub const DEV_HANDSHAKE_INIT: u8 = 0x01;
+pub const DEV_HANDSHAKE_COMPLETE: u8 = 0x02;
+pub const DEV_MESSAGE: u8 = 0x10;
+pub const DEV_MESSAGE_RESPONSE: u8 = 0x11;
+
+// Handshake status codes
+pub const HANDSHAKE_ACCEPTED: u8 = 0;
+pub const HANDSHAKE_REJECTED: u8 = 1;
 
 /// HELLO message sent by relay on connection
 #[derive(Debug, Clone)]
@@ -190,6 +201,45 @@ impl Send {
     }
 }
 
+/// UPDATE_COMMITS - add commits to an existing connection
+#[derive(Debug, Clone)]
+pub struct UpdateCommits {
+    pub commits: Vec<[u8; 32]>,
+}
+
+impl UpdateCommits {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let commit_count = self.commits.len() as u16;
+        let mut buf = Vec::with_capacity(2 + self.commits.len() * 32);
+        buf.extend_from_slice(&commit_count.to_be_bytes());
+        for commit in &self.commits {
+            buf.extend_from_slice(commit);
+        }
+        buf
+    }
+
+    pub fn from_bytes(data: &[u8]) -> io::Result<Self> {
+        if data.len() < 2 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "UPDATE_COMMITS too short"));
+        }
+
+        let commit_count = u16::from_be_bytes([data[0], data[1]]) as usize;
+
+        if data.len() < 2 + commit_count * 32 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "UPDATE_COMMITS truncated"));
+        }
+
+        let mut commits = Vec::with_capacity(commit_count);
+        for i in 0..commit_count {
+            let start = 2 + i * 32;
+            let commit: [u8; 32] = data[start..start + 32].try_into().unwrap();
+            commits.push(commit);
+        }
+
+        Ok(Self { commits })
+    }
+}
+
 /// DELIVER message - relay forwards message to recipient
 #[derive(Debug, Clone)]
 pub struct Deliver {
@@ -300,6 +350,235 @@ impl SendResult {
     }
 }
 
+// ============================================================================
+// Device Protocol Messages (inside encrypted payload)
+// ============================================================================
+
+/// HANDSHAKE_INIT: First message from invite acceptor to invite creator
+#[derive(Debug, Clone)]
+pub struct HandshakeInit {
+    pub sender_id52: [u8; 32],
+    pub preimage_for_peer: [u8; 32],
+    pub relay_url: String,
+}
+
+impl HandshakeInit {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let url_bytes = self.relay_url.as_bytes();
+        let url_len = url_bytes.len() as u16;
+        let mut buf = Vec::with_capacity(1 + 32 + 32 + 2 + url_bytes.len());
+        buf.push(DEV_HANDSHAKE_INIT);
+        buf.extend_from_slice(&self.sender_id52);
+        buf.extend_from_slice(&self.preimage_for_peer);
+        buf.extend_from_slice(&url_len.to_be_bytes());
+        buf.extend_from_slice(url_bytes);
+        buf
+    }
+
+    pub fn from_bytes(data: &[u8]) -> io::Result<Self> {
+        if data.len() < 1 + 32 + 32 + 2 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "HANDSHAKE_INIT too short"));
+        }
+        if data[0] != DEV_HANDSHAKE_INIT {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "not HANDSHAKE_INIT"));
+        }
+
+        let sender_id52: [u8; 32] = data[1..33].try_into().unwrap();
+        let preimage_for_peer: [u8; 32] = data[33..65].try_into().unwrap();
+        let url_len = u16::from_be_bytes([data[65], data[66]]) as usize;
+
+        if data.len() < 67 + url_len {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "HANDSHAKE_INIT url truncated"));
+        }
+
+        let relay_url = String::from_utf8(data[67..67 + url_len].to_vec())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid utf8 in relay_url"))?;
+
+        Ok(Self { sender_id52, preimage_for_peer, relay_url })
+    }
+}
+
+/// HANDSHAKE_COMPLETE: Response from invite creator to acceptor
+#[derive(Debug, Clone)]
+pub struct HandshakeComplete {
+    pub status: u8,
+    pub preimage_for_peer: [u8; 32],
+    pub relay_url: String,
+}
+
+impl HandshakeComplete {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let url_bytes = self.relay_url.as_bytes();
+        let url_len = url_bytes.len() as u16;
+        let mut buf = Vec::with_capacity(1 + 1 + 32 + 2 + url_bytes.len());
+        buf.push(DEV_HANDSHAKE_COMPLETE);
+        buf.push(self.status);
+        buf.extend_from_slice(&self.preimage_for_peer);
+        buf.extend_from_slice(&url_len.to_be_bytes());
+        buf.extend_from_slice(url_bytes);
+        buf
+    }
+
+    pub fn from_bytes(data: &[u8]) -> io::Result<Self> {
+        if data.len() < 1 + 1 + 32 + 2 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "HANDSHAKE_COMPLETE too short"));
+        }
+        if data[0] != DEV_HANDSHAKE_COMPLETE {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "not HANDSHAKE_COMPLETE"));
+        }
+
+        let status = data[1];
+        let preimage_for_peer: [u8; 32] = data[2..34].try_into().unwrap();
+        let url_len = u16::from_be_bytes([data[34], data[35]]) as usize;
+
+        if data.len() < 36 + url_len {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "HANDSHAKE_COMPLETE url truncated"));
+        }
+
+        let relay_url = String::from_utf8(data[36..36 + url_len].to_vec())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid utf8 in relay_url"))?;
+
+        Ok(Self { status, preimage_for_peer, relay_url })
+    }
+}
+
+/// MESSAGE: Application message between paired peers
+#[derive(Debug, Clone)]
+pub struct DeviceMessage {
+    pub content_type: u8,
+    pub relay_url: String,
+    pub content: Vec<u8>,
+}
+
+impl DeviceMessage {
+    pub const CONTENT_TEXT: u8 = 0;
+    pub const CONTENT_BINARY: u8 = 1;
+
+    pub fn text(relay_url: String, text: &str) -> Self {
+        Self {
+            content_type: Self::CONTENT_TEXT,
+            relay_url,
+            content: text.as_bytes().to_vec(),
+        }
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let url_bytes = self.relay_url.as_bytes();
+        let url_len = url_bytes.len() as u16;
+        let content_len = self.content.len() as u32;
+        let mut buf = Vec::with_capacity(1 + 1 + 2 + url_bytes.len() + 4 + self.content.len());
+        buf.push(DEV_MESSAGE);
+        buf.push(self.content_type);
+        buf.extend_from_slice(&url_len.to_be_bytes());
+        buf.extend_from_slice(url_bytes);
+        buf.extend_from_slice(&content_len.to_be_bytes());
+        buf.extend_from_slice(&self.content);
+        buf
+    }
+
+    pub fn from_bytes(data: &[u8]) -> io::Result<Self> {
+        if data.len() < 1 + 1 + 2 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "MESSAGE too short"));
+        }
+        if data[0] != DEV_MESSAGE {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "not MESSAGE"));
+        }
+
+        let content_type = data[1];
+        let url_len = u16::from_be_bytes([data[2], data[3]]) as usize;
+
+        if data.len() < 4 + url_len + 4 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "MESSAGE url truncated"));
+        }
+
+        let relay_url = String::from_utf8(data[4..4 + url_len].to_vec())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid utf8 in relay_url"))?;
+
+        let content_start = 4 + url_len;
+        let content_len = u32::from_be_bytes([
+            data[content_start], data[content_start + 1],
+            data[content_start + 2], data[content_start + 3]
+        ]) as usize;
+
+        if data.len() < content_start + 4 + content_len {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "MESSAGE content truncated"));
+        }
+
+        let content = data[content_start + 4..content_start + 4 + content_len].to_vec();
+
+        Ok(Self { content_type, relay_url, content })
+    }
+}
+
+/// MESSAGE_RESPONSE: Response to a message, includes next preimage
+#[derive(Debug, Clone)]
+pub struct DeviceMessageResponse {
+    pub status: u8,
+    pub next_preimage: [u8; 32],
+    pub relay_url: String,
+    pub content: Vec<u8>,
+}
+
+impl DeviceMessageResponse {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let url_bytes = self.relay_url.as_bytes();
+        let url_len = url_bytes.len() as u16;
+        let content_len = self.content.len() as u32;
+        let mut buf = Vec::with_capacity(1 + 1 + 32 + 2 + url_bytes.len() + 4 + self.content.len());
+        buf.push(DEV_MESSAGE_RESPONSE);
+        buf.push(self.status);
+        buf.extend_from_slice(&self.next_preimage);
+        buf.extend_from_slice(&url_len.to_be_bytes());
+        buf.extend_from_slice(url_bytes);
+        buf.extend_from_slice(&content_len.to_be_bytes());
+        buf.extend_from_slice(&self.content);
+        buf
+    }
+
+    pub fn from_bytes(data: &[u8]) -> io::Result<Self> {
+        if data.len() < 1 + 1 + 32 + 2 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "MESSAGE_RESPONSE too short"));
+        }
+        if data[0] != DEV_MESSAGE_RESPONSE {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "not MESSAGE_RESPONSE"));
+        }
+
+        let status = data[1];
+        let next_preimage: [u8; 32] = data[2..34].try_into().unwrap();
+        let url_len = u16::from_be_bytes([data[34], data[35]]) as usize;
+
+        if data.len() < 36 + url_len + 4 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "MESSAGE_RESPONSE url truncated"));
+        }
+
+        let relay_url = String::from_utf8(data[36..36 + url_len].to_vec())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid utf8 in relay_url"))?;
+
+        let content_start = 36 + url_len;
+        let content_len = u32::from_be_bytes([
+            data[content_start], data[content_start + 1],
+            data[content_start + 2], data[content_start + 3]
+        ]) as usize;
+
+        if data.len() < content_start + 4 + content_len {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "MESSAGE_RESPONSE content truncated"));
+        }
+
+        let content = data[content_start + 4..content_start + 4 + content_len].to_vec();
+
+        Ok(Self { status, next_preimage, relay_url, content })
+    }
+}
+
+/// Parse device protocol message type from first byte
+pub fn parse_device_msg_type(data: &[u8]) -> Option<u8> {
+    data.first().copied()
+}
+
+// ============================================================================
+// Relay Protocol Framing
+// ============================================================================
+
 /// Frame: wraps any message with type and length
 #[derive(Debug, Clone)]
 pub struct Frame {
@@ -334,6 +613,10 @@ impl Frame {
 
     pub fn send_result(result: &SendResult) -> Self {
         Self::new(MSG_SEND_RESULT, result.to_bytes())
+    }
+
+    pub fn update_commits(update: &UpdateCommits) -> Self {
+        Self::new(MSG_UPDATE_COMMITS, update.to_bytes())
     }
 
     /// Write frame to a writer

@@ -6,7 +6,7 @@ use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use bhumi_proto::{Frame, Hello, IAm, Send as SendMsg, Deliver, Ack, SendResult, MSG_HELLO, MSG_DELIVER, MSG_SEND_RESULT};
+use bhumi_proto::{Frame, Hello, IAm, Send as SendMsg, Deliver, Ack, SendResult, UpdateCommits, MSG_HELLO, MSG_DELIVER, MSG_SEND_RESULT};
 use bhumi_proto::async_io::{read_frame, write_frame};
 use fastn_id52::SecretKey;
 
@@ -121,6 +121,17 @@ pub async fn send_ack<S: AsyncRead + AsyncWrite + Unpin>(
     let ack = Ack { msg_id, payload };
     write_frame(stream, &Frame::ack(&ack)).await?;
     println!("Sent ACK for msg_id={}", msg_id);
+    Ok(())
+}
+
+/// Send UPDATE_COMMITS to add new commits while connected
+pub async fn update_commits<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: &mut S,
+    commits: Vec<[u8; 32]>,
+) -> std::io::Result<()> {
+    let update = UpdateCommits { commits: commits.clone() };
+    write_frame(stream, &Frame::update_commits(&update)).await?;
+    println!("Sent UPDATE_COMMITS ({} commits)", commits.len());
     Ok(())
 }
 

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc;
 
-use bhumi_proto::{Frame, Hello, IAm, Send as SendMsg, Deliver, Ack, SendResult, MSG_I_AM, MSG_SEND, MSG_ACK};
+use bhumi_proto::{Frame, Hello, IAm, Send as SendMsg, Deliver, Ack, SendResult, UpdateCommits, MSG_I_AM, MSG_SEND, MSG_ACK, MSG_UPDATE_COMMITS};
 use bhumi_proto::async_io::{read_frame, write_frame};
 use fastn_id52::PublicKey;
 
@@ -79,6 +79,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
             MSG_ACK => {
                 let ack = Ack::from_bytes(&frame.payload)?;
                 self.handle_ack(ack).await?;
+            }
+            MSG_UPDATE_COMMITS => {
+                let update = UpdateCommits::from_bytes(&frame.payload)?;
+                self.handle_update_commits(update).await?;
             }
             other => {
                 println!("  Unknown message type: 0x{:04x}", other);
@@ -164,6 +168,17 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
     async fn handle_ack(&mut self, ack: Ack) -> std::io::Result<()> {
         println!("  ACK for msg_id={} ({} bytes)", ack.msg_id, ack.payload.len());
         self.router.handle_ack(ack.msg_id, ack.payload).await;
+        Ok(())
+    }
+
+    async fn handle_update_commits(&mut self, update: UpdateCommits) -> std::io::Result<()> {
+        if let Some(id52) = &self.id52 {
+            let count = update.commits.len();
+            self.router.add_commits(id52, update.commits).await;
+            println!("  UPDATE_COMMITS: added {} commits", count);
+        } else {
+            println!("  UPDATE_COMMITS: no identity registered");
+        }
         Ok(())
     }
 

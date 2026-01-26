@@ -103,6 +103,16 @@ impl Router {
         );
     }
 
+    /// Add commits to an existing device
+    pub async fn add_commits(&self, id52: &[u8; 32], commits: Vec<[u8; 32]>) {
+        let mut devices = self.devices.write().await;
+        if let Some(device) = devices.get_mut(id52) {
+            for commit in commits {
+                device.commits.insert(commit);
+            }
+        }
+    }
+
     /// Handle ACK from a recipient
     pub async fn handle_ack(&self, msg_id: u32, response: Vec<u8>) {
         // Get pending entry (includes preimage)
