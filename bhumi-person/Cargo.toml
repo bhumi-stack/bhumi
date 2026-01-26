@@ -1,5 +1,5 @@
 [package]
-name = "bhumi-device"
+name = "bhumi-person"
 version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
@@ -10,12 +10,12 @@ homepage.workspace = true
 rust-version.workspace = true
 
 [lib]
-name = "bhumi_device"
+name = "bhumi_person"
 path = "src/lib.rs"
 
 [[example]]
-name = "smart-switch"
-path = "examples/smart-switch.rs"
+name = "switch-owner"
+path = "examples/switch-owner.rs"
 
 [dependencies]
 bhumi-node = { workspace = true }

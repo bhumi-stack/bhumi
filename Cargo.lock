@@ -96,17 +96,12 @@ checksum = "7d809780667f4410e7c41b07f52439b94d2bdf8528eeedc287fa38d3b7f95d82"
 name = "bhumi-device"
 version = "0.1.0"
 dependencies = [
+ "bhumi-node",
  "bhumi-proto",
  "data-encoding",
- "dirs",
- "fastn-id52",
- "rand",
- "rustls",
  "serde",
  "serde_json",
- "sha2",
  "tokio",
- "tokio-rustls",
 ]
 
 [[package]]
@@ -123,6 +118,35 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "bhumi-node"
+version = "0.1.0"
+dependencies = [
+ "bhumi-proto",
+ "data-encoding",
+ "dirs",
+ "fastn-id52",
+ "rand",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tokio-rustls",
+]
+
+[[package]]
+name = "bhumi-person"
+version = "0.1.0"
+dependencies = [
+ "bhumi-node",
+ "bhumi-proto",
+ "data-encoding",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 

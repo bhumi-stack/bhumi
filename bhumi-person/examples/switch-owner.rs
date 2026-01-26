@@ -1,7 +1,7 @@
 //! Switch Owner - CLI to control smart switches
 //!
 //! Usage:
-//!   OWNER_HOME=/tmp/switch-owner cargo run --example switch-owner -- <command>
+//!   OWNER_HOME=/tmp/switch-owner cargo run --example switch-owner -p bhumi-person -- <command>
 //!
 //! Commands:
 //!   pair <invite-token> [alias]  - Pair with a switch
@@ -15,7 +15,7 @@
 //!   <switch> invite delete <id>  - Delete an invite
 
 use std::path::PathBuf;
-use bhumi_device::{Device, json};
+use bhumi_person::{Person, json};
 
 const RELAY_ADDR: &str = "127.0.0.1:8443";
 
@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let home = get_home();
-    let mut device = Device::new(home);
+    let mut person = Person::new(home);
 
     match args[1].as_str() {
         "pair" => {
@@ -45,10 +45,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let token = &args[2];
             let alias = args.get(3).map(|s| s.as_str()).unwrap_or("switch");
-            cmd_pair(&mut device, token, alias).await?;
+            cmd_pair(&mut person, token, alias).await?;
         }
         "list" => {
-            cmd_list(&device);
+            cmd_list(&person);
         }
         switch_alias => {
             if args.len() < 3 {
@@ -57,10 +57,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let cmd = &args[2];
             match cmd.as_str() {
-                "status" => cmd_status(&mut device, switch_alias).await?,
-                "on" => cmd_on(&mut device, switch_alias).await?,
-                "off" => cmd_off(&mut device, switch_alias).await?,
-                "toggle" => cmd_toggle(&mut device, switch_alias).await?,
+                "status" => cmd_status(&mut person, switch_alias).await?,
+                "on" => cmd_on(&mut person, switch_alias).await?,
+                "off" => cmd_off(&mut person, switch_alias).await?,
+                "toggle" => cmd_toggle(&mut person, switch_alias).await?,
                 "invite" => {
                     if args.len() < 4 {
                         eprintln!("Usage: switch-owner <switch> invite <create|list|delete>");
@@ -70,15 +70,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "create" => {
                             let alias = args.get(4).map(|s| s.as_str()).unwrap_or("user");
                             let role = args.get(5).map(|s| s.as_str()).unwrap_or("reader");
-                            cmd_invite_create(&mut device, switch_alias, alias, role).await?;
+                            cmd_invite_create(&mut person, switch_alias, alias, role).await?;
                         }
-                        "list" => cmd_invite_list(&mut device, switch_alias).await?,
+                        "list" => cmd_invite_list(&mut person, switch_alias).await?,
                         "delete" => {
                             if args.len() < 5 {
                                 eprintln!("Usage: switch-owner <switch> invite delete <id>");
                                 std::process::exit(1);
                             }
-                            cmd_invite_delete(&mut device, switch_alias, &args[4]).await?;
+                            cmd_invite_delete(&mut person, switch_alias, &args[4]).await?;
                         }
                         _ => {
                             eprintln!("Unknown invite command: {}", args[3]);
@@ -112,15 +112,15 @@ fn print_usage() {
     eprintln!("  <switch> invite delete <id>");
 }
 
-async fn cmd_pair(device: &mut Device, token: &str, alias: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn cmd_pair(person: &mut Person, token: &str, alias: &str) -> Result<(), Box<dyn std::error::Error>> {
     println!("Pairing with switch as \"{}\"...", alias);
-    device.pair(RELAY_ADDR, token, alias).await?;
+    person.pair(RELAY_ADDR, token, alias).await?;
     println!("Paired successfully!");
     Ok(())
 }
 
-fn cmd_list(device: &Device) {
-    let peers = device.list_peers();
+fn cmd_list(person: &Person) {
+    let peers: Vec<_> = person.list_peers().collect();
     if peers.is_empty() {
         println!("No paired switches.");
         println!();
@@ -135,36 +135,36 @@ fn cmd_list(device: &Device) {
     }
 }
 
-async fn cmd_status(device: &mut Device, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let result = device.send_command(RELAY_ADDR, switch, "status", json!({})).await?;
+async fn cmd_status(person: &mut Person, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let result = person.send_command(RELAY_ADDR, switch, "status", json!({})).await?;
     let is_on = result.get("is_on").and_then(|v| v.as_bool()).unwrap_or(false);
     println!("Switch \"{}\" is {}", switch, if is_on { "ON" } else { "OFF" });
     Ok(())
 }
 
-async fn cmd_on(device: &mut Device, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let result = device.send_command(RELAY_ADDR, switch, "on", json!({})).await?;
+async fn cmd_on(person: &mut Person, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let result = person.send_command(RELAY_ADDR, switch, "on", json!({})).await?;
     let is_on = result.get("is_on").and_then(|v| v.as_bool()).unwrap_or(false);
     println!("Switch \"{}\" is now {}", switch, if is_on { "ON" } else { "OFF" });
     Ok(())
 }
 
-async fn cmd_off(device: &mut Device, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let result = device.send_command(RELAY_ADDR, switch, "off", json!({})).await?;
+async fn cmd_off(person: &mut Person, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let result = person.send_command(RELAY_ADDR, switch, "off", json!({})).await?;
     let is_on = result.get("is_on").and_then(|v| v.as_bool()).unwrap_or(false);
     println!("Switch \"{}\" is now {}", switch, if is_on { "ON" } else { "OFF" });
     Ok(())
 }
 
-async fn cmd_toggle(device: &mut Device, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let result = device.send_command(RELAY_ADDR, switch, "toggle", json!({})).await?;
+async fn cmd_toggle(person: &mut Person, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let result = person.send_command(RELAY_ADDR, switch, "toggle", json!({})).await?;
     let is_on = result.get("is_on").and_then(|v| v.as_bool()).unwrap_or(false);
     println!("Switch \"{}\" is now {}", switch, if is_on { "ON" } else { "OFF" });
     Ok(())
 }
 
-async fn cmd_invite_create(device: &mut Device, switch: &str, alias: &str, role: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let result = device.send_command(RELAY_ADDR, switch, "invite/create", json!({
+async fn cmd_invite_create(person: &mut Person, switch: &str, alias: &str, role: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let result = person.send_command(RELAY_ADDR, switch, "invite/create", json!({
         "alias": alias,
         "role": role
     })).await?;
@@ -177,8 +177,8 @@ async fn cmd_invite_create(device: &mut Device, switch: &str, alias: &str, role:
     Ok(())
 }
 
-async fn cmd_invite_list(device: &mut Device, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let result = device.send_command(RELAY_ADDR, switch, "invite/list", json!({})).await?;
+async fn cmd_invite_list(person: &mut Person, switch: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let result = person.send_command(RELAY_ADDR, switch, "invite/list", json!({})).await?;
     let invites = result.get("invites").and_then(|v| v.as_array());
     match invites {
         Some(list) if !list.is_empty() => {
@@ -197,8 +197,8 @@ async fn cmd_invite_list(device: &mut Device, switch: &str) -> Result<(), Box<dy
     Ok(())
 }
 
-async fn cmd_invite_delete(device: &mut Device, switch: &str, id: &str) -> Result<(), Box<dyn std::error::Error>> {
-    device.send_command(RELAY_ADDR, switch, "invite/delete", json!({ "id": id })).await?;
+async fn cmd_invite_delete(person: &mut Person, switch: &str, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    person.send_command(RELAY_ADDR, switch, "invite/delete", json!({ "id": id })).await?;
     println!("Deleted invite {}.", id);
     Ok(())
 }

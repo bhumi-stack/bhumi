@@ -1,5 +1,5 @@
 [package]
-name = "bhumi-device"
+name = "bhumi-node"
 version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
@@ -9,18 +9,15 @@ repository.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
 
-[lib]
-name = "bhumi_device"
-path = "src/lib.rs"
-
-[[example]]
-name = "smart-switch"
-path = "examples/smart-switch.rs"
-
 [dependencies]
-bhumi-node = { workspace = true }
 bhumi-proto = { workspace = true }
+fastn-id52 = { workspace = true }
 tokio = { workspace = true }
+tokio-rustls = "0.26"
+rustls = "0.23"
+sha2 = { workspace = true }
+rand = { workspace = true }
+data-encoding = { workspace = true }
+dirs = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-data-encoding = { workspace = true }

@@ -10,7 +10,7 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use bhumi_device::{Device, PeerRole, json};
+use bhumi_device::{Device, DeviceConfig, PeerRole, json};
 
 const RELAY_ADDR: &str = "127.0.0.1:8443";
 
@@ -28,7 +28,11 @@ struct SwitchState {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let home = get_home();
     let state = SwitchState { is_on: AtomicBool::new(false) };
-    let mut device = Device::with_state(home, state);
+    let config = DeviceConfig {
+        kind: "smart-switch".to_string(),
+        location: String::new(),
+    };
+    let mut device = Device::with_state(home, config, state);
 
     println!("Smart Switch v0.1");
     println!("Device ID: {}", device.id52());

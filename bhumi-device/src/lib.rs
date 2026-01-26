@@ -1,123 +1,112 @@
-//! Bhumi Device Library
+//! Bhumi Device - For IoT devices on the Bhumi P2P network
 //!
-//! A library for building P2P IoT applications using the Bhumi relay protocol.
-//! Similar to how hyper/actix provide HTTP primitives, bhumi-device provides
-//! P2P messaging primitives with a simple command-handler pattern.
+//! This crate provides the Device type for building IoT applications.
+//! Devices can register command handlers and respond to requests from
+//! paired people (owners/writers/readers).
 //!
 //! # Example
 //!
 //! ```ignore
-//! use bhumi_device::Device;
-//! use serde_json::json;
+//! use bhumi_device::{Device, DeviceConfig, json};
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     let mut device = Device::new("/tmp/my-device".into());
+//!     let config = DeviceConfig {
+//!         kind: "smart-switch".to_string(),
+//!         location: "home.bedroom".to_string(),
+//!     };
+//!     let mut device = Device::new("/tmp/my-device".into(), config);
 //!
-//!     // Register custom commands
-//!     device.command("status", |_ctx, _args| {
+//!     device.command("status", |_ctx, _state, _args| {
 //!         Ok(json!({ "is_on": false }))
 //!     });
-//!
-//!     // Built-in commands: invite/create, invite/list, invite/delete
-//!     // Handshakes and preimage renewal are automatic
 //!
 //!     device.run("127.0.0.1:8443").await.unwrap();
 //! }
 //! ```
 
-mod connection;
-mod identity;
-mod state;
-
-pub use connection::Connection;
-pub use identity::{load_or_create_identity, bhumi_home};
-pub use state::{DeviceState, PeerRecord, InviteRecord, PeerRole, PreimageLookup, create_invite_token, parse_invite_token};
-pub use fastn_id52::{SecretKey, PublicKey};
-pub use serde_json::{json, Value as JsonValue};
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-pub use bhumi_proto::{
+// Re-export from bhumi-node
+pub use bhumi_node::{
+    Connection, CommandContext, Request, Response, IncomingMessage,
+    DeviceState, PeerRecord, InviteRecord, PeerRole, PreimageLookup,
+    SecretKey, PublicKey, JsonValue, json,
     HandshakeInit, HandshakeComplete, HANDSHAKE_ACCEPTED, HANDSHAKE_REJECTED, SEND_OK,
-    DEV_HANDSHAKE_INIT, parse_device_msg_type,
+    DEV_HANDSHAKE_INIT,
+    load_or_create, create_invite_token, parse_invite_token,
 };
+
+/// Device configuration - metadata about the device
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DeviceConfig {
+    /// Kind of device (e.g., "smart-switch", "thermostat", "camera")
+    pub kind: String,
+    /// Location in dotted notation (e.g., "home-1.bedroom", "office.desk")
+    pub location: String,
+}
+
+impl Default for DeviceConfig {
+    fn default() -> Self {
+        Self {
+            kind: "unknown".to_string(),
+            location: "".to_string(),
+        }
+    }
+}
 
 /// Command handler function type
 pub type CommandHandler<S> = Box<dyn Fn(&CommandContext, &S, JsonValue) -> Result<JsonValue, String> + Send + Sync>;
 
-/// Context passed to command handlers
-pub struct CommandContext {
-    /// The peer who sent this command
-    pub peer_alias: String,
-    /// The peer's id52
-    pub peer_id52: [u8; 32],
-    /// The peer's role
-    pub role: PeerRole,
-}
-
-/// Request message format
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct Request {
-    pub cmd: String,
-    #[serde(default)]
-    pub args: JsonValue,
-}
-
-/// Response message format
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct Response {
-    pub ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<JsonValue>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-impl Response {
-    pub fn ok(data: JsonValue) -> Self {
-        Self { ok: true, data: Some(data), error: None }
-    }
-
-    pub fn err(msg: impl Into<String>) -> Self {
-        Self { ok: false, data: None, error: Some(msg.into()) }
-    }
-}
-
-/// A Bhumi device that can communicate with peers through relays
+/// A Bhumi IoT device
 pub struct Device<S: Send + Sync + 'static = ()> {
     secret_key: SecretKey,
     pub public_key: PublicKey,
     state: DeviceState,
     state_path: PathBuf,
-    home: PathBuf,
+    config: DeviceConfig,
+    config_path: PathBuf,
+    relay_addr: Option<String>,
     handlers: HashMap<String, CommandHandler<S>>,
     app_state: Option<S>,
 }
 
 impl Device<()> {
-    /// Create or load a device from the given home directory (no app state)
-    pub fn new(home: PathBuf) -> Self {
-        Self::with_state(home, ())
+    /// Create or load a device with no app state
+    pub fn new(home: PathBuf, config: DeviceConfig) -> Self {
+        Self::with_state(home, config, ())
     }
 }
 
 impl<S: Send + Sync + 'static> Device<S> {
     /// Create or load a device with custom app state
-    pub fn with_state(home: PathBuf, app_state: S) -> Self {
+    pub fn with_state(home: PathBuf, config: DeviceConfig, app_state: S) -> Self {
         std::fs::create_dir_all(&home).expect("failed to create home directory");
 
-        let (secret_key, public_key) = identity::load_or_create(&home);
+        let (secret_key, public_key) = bhumi_node::load_or_create(&home);
         let state_path = home.join("state.json");
+        let config_path = home.join("config.json");
         let state = DeviceState::load(&state_path);
+
+        // Load or save config
+        let config = if config_path.exists() {
+            let data = std::fs::read_to_string(&config_path).expect("failed to read config");
+            serde_json::from_str(&data).unwrap_or(config)
+        } else {
+            std::fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap())
+                .expect("failed to write config");
+            config
+        };
 
         Self {
             secret_key,
             public_key,
             state,
             state_path,
-            home,
+            config,
+            config_path,
+            relay_addr: None,
             handlers: HashMap::new(),
             app_state: Some(app_state),
         }
@@ -128,6 +117,16 @@ impl<S: Send + Sync + 'static> Device<S> {
         self.public_key.to_string()
     }
 
+    /// Get the device's kind
+    pub fn kind(&self) -> &str {
+        &self.config.kind
+    }
+
+    /// Get the device's location
+    pub fn location(&self) -> &str {
+        &self.config.location
+    }
+
     /// Register a command handler
     pub fn command<F>(&mut self, name: &str, handler: F)
     where
@@ -136,7 +135,7 @@ impl<S: Send + Sync + 'static> Device<S> {
         self.handlers.insert(name.to_string(), Box::new(handler));
     }
 
-    /// Create an invite (can be called before run() for initial setup)
+    /// Create an invite
     pub fn create_invite(&mut self, alias: &str, role: PeerRole) -> String {
         let (invite, _commit) = self.state.create_invite(alias, role);
         self.save();
@@ -166,112 +165,9 @@ impl<S: Send + Sync + 'static> Device<S> {
         self.state.get_all_commits()
     }
 
-    /// Pair with another device by accepting their invite token
-    pub async fn pair(&mut self, relay_addr: &str, token: &str, alias: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let (their_id52, their_preimage) = parse_invite_token(token)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-
-        let (my_preimage, my_commit) = self.state.accept_invite(their_id52, their_preimage, alias);
-        self.save();
-
-        // Connect and do handshake
-        let mut commits = self.get_commits();
-        commits.push(my_commit);
-        let mut conn = Connection::connect(relay_addr, &self.secret_key, commits).await?;
-
-        // Send HANDSHAKE_INIT
-        let init = HandshakeInit {
-            sender_id52: self.public_key.to_bytes(),
-            preimage_for_peer: my_preimage,
-            relay_url: relay_addr.to_string(),
-        };
-
-        let result = conn.send(their_id52, their_preimage, init.to_bytes()).await?;
-
-        if result.status != SEND_OK {
-            self.state.pending_peers.remove(&their_id52);
-            self.save();
-            return Err(format!("handshake failed: status={}", result.status).into());
-        }
-
-        // Parse HANDSHAKE_COMPLETE
-        let complete = HandshakeComplete::from_bytes(&result.payload)?;
-
-        if complete.status != HANDSHAKE_ACCEPTED {
-            self.state.pending_peers.remove(&their_id52);
-            self.save();
-            return Err("handshake rejected by peer".into());
-        }
-
-        // Complete handshake
-        self.state.complete_handshake_as_acceptor(&their_id52, complete.preimage_for_peer, Some(complete.relay_url));
-        self.save();
-
-        Ok(())
-    }
-
-    /// Send a command to a peer and get the response
-    pub async fn send_command(&mut self, relay_addr: &str, peer_alias: &str, cmd: &str, args: JsonValue) -> Result<JsonValue, Box<dyn std::error::Error>> {
-        let (peer_id52, peer) = self.state.find_peer_by_alias(peer_alias)
-            .ok_or_else(|| format!("peer '{}' not found", peer_alias))?;
-
-        let their_preimage = peer.their_preimage
-            .ok_or("no preimage available to contact this peer")?;
-
-        // Connect
-        let mut conn = Connection::connect(relay_addr, &self.secret_key, self.get_commits()).await?;
-
-        // Build request
-        let request = Request { cmd: cmd.to_string(), args };
-        let payload = serde_json::to_vec(&request)?;
-
-        // Send
-        let result = conn.send(peer_id52, their_preimage, payload).await?;
-
-        if result.status != SEND_OK {
-            return Err(format!("send failed: status={}", result.status).into());
-        }
-
-        // Parse response - JSON followed by optional 32-byte next_preimage
-        let response_len = result.payload.len();
-        let (json_part, preimage_part) = if response_len >= 32 {
-            // Check if last 32 bytes could be a preimage (not valid JSON typically)
-            let potential_json = &result.payload[..response_len - 32];
-            if serde_json::from_slice::<Response>(potential_json).is_ok() {
-                (potential_json, Some(&result.payload[response_len - 32..]))
-            } else {
-                (&result.payload[..], None)
-            }
-        } else {
-            (&result.payload[..], None)
-        };
-
-        let response: Response = serde_json::from_slice(json_part)?;
-
-        // Update preimage if we got a new one
-        if let Some(preimage_bytes) = preimage_part {
-            let mut new_preimage = [0u8; 32];
-            new_preimage.copy_from_slice(preimage_bytes);
-            if new_preimage != [0u8; 32] {
-                self.state.update_peer_preimage(&peer_id52, new_preimage);
-                self.save();
-            }
-        }
-
-        if response.ok {
-            Ok(response.data.unwrap_or(json!({})))
-        } else {
-            Err(response.error.unwrap_or_else(|| "unknown error".to_string()).into())
-        }
-    }
-
-    /// List all paired peers
-    pub fn list_peers(&self) -> Vec<(&[u8; 32], &PeerRecord)> {
-        self.state.peers.iter().collect()
-    }
-
     /// Run the device, connecting to relay and handling messages
     pub async fn run(&mut self, relay_addr: &str) -> Result<(), Box<dyn std::error::Error>> {
+        self.relay_addr = Some(relay_addr.to_string());
         let mut conn = Connection::connect(relay_addr, &self.secret_key, self.get_commits()).await?;
 
         loop {
@@ -283,9 +179,7 @@ impl<S: Send + Sync + 'static> Device<S> {
                 Err(e) => return Err(e.into()),
             };
 
-            let msg_type = msg.msg_type;
-
-            if msg_type == Some(DEV_HANDSHAKE_INIT) {
+            if msg.msg_type == Some(DEV_HANDSHAKE_INIT) {
                 self.handle_handshake(&mut conn, msg.msg_id, &msg.preimage, &msg.payload).await?;
             } else {
                 self.handle_command(&mut conn, msg.msg_id, &msg.preimage, &msg.payload).await?;
@@ -312,10 +206,11 @@ impl<S: Send + Sync + 'static> Device<S> {
         ) {
             self.save();
 
+            let relay_addr = self.relay_addr.clone().unwrap_or_default();
             let complete = HandshakeComplete {
                 status: HANDSHAKE_ACCEPTED,
                 preimage_for_peer: new_preimage,
-                relay_url: "127.0.0.1:8443".to_string(), // TODO: make configurable
+                relay_url: relay_addr,
             };
 
             conn.send_ack(msg_id, complete.to_bytes()).await?;
@@ -363,7 +258,6 @@ impl<S: Send + Sync + 'static> Device<S> {
         // Renew preimage
         if let Some((new_preimage, new_commit)) = self.state.consume_and_renew_preimage(&peer_id52, preimage) {
             self.save();
-            // Append next_preimage to response (32 bytes at end)
             response_bytes.extend_from_slice(&new_preimage);
             conn.update_commits(vec![new_commit]).await?;
         }
@@ -373,18 +267,23 @@ impl<S: Send + Sync + 'static> Device<S> {
     }
 
     fn dispatch_command(&mut self, ctx: &CommandContext, req: &Request) -> Response {
-        // Built-in commands (owner only)
         match req.cmd.as_str() {
+            // Device info - anyone can read
+            "device/info" => {
+                Response::ok(json!({
+                    "kind": self.config.kind,
+                    "location": self.config.location,
+                    "id": self.id52(),
+                }))
+            }
+
+            // Invite management - owner only
             "invite/create" => {
                 if ctx.role != PeerRole::Owner {
                     return Response::err("permission denied: owner only");
                 }
-                let alias = req.args.get("alias")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("user");
-                let role_str = req.args.get("role")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("reader");
+                let alias = req.args.get("alias").and_then(|v| v.as_str()).unwrap_or("user");
+                let role_str = req.args.get("role").and_then(|v| v.as_str()).unwrap_or("reader");
                 let role = match role_str {
                     "owner" => PeerRole::Owner,
                     "writer" => PeerRole::Writer,
@@ -393,6 +292,7 @@ impl<S: Send + Sync + 'static> Device<S> {
                 let token = self.create_invite(alias, role);
                 Response::ok(json!({ "token": token }))
             }
+
             "invite/list" => {
                 if ctx.role != PeerRole::Owner {
                     return Response::err("permission denied: owner only");
@@ -406,6 +306,7 @@ impl<S: Send + Sync + 'static> Device<S> {
                     .collect();
                 Response::ok(json!({ "invites": invites }))
             }
+
             "invite/delete" => {
                 if ctx.role != PeerRole::Owner {
                     return Response::err("permission denied: owner only");
@@ -429,8 +330,28 @@ impl<S: Send + Sync + 'static> Device<S> {
                     Response::err("invite not found")
                 }
             }
+
+            // Peer management - owner only
+            "peers/list" => {
+                if ctx.role != PeerRole::Owner {
+                    return Response::err("permission denied: owner only");
+                }
+                let peers: Vec<_> = self.state.peers.iter()
+                    .map(|(id52, peer)| {
+                        let id_short = data_encoding::BASE32_DNSSEC.encode(&id52[..10]);
+                        let role = format!("{:?}", peer.role).to_lowercase();
+                        json!({
+                            "id": id_short,
+                            "alias": peer.alias,
+                            "role": role,
+                        })
+                    })
+                    .collect();
+                Response::ok(json!({ "peers": peers }))
+            }
+
+            // Custom command
             cmd => {
-                // Custom command handler
                 if let Some(handler) = self.handlers.get(cmd) {
                     let app_state = self.app_state.as_ref().unwrap();
                     match handler(ctx, app_state, req.args.clone()) {
@@ -442,28 +363,5 @@ impl<S: Send + Sync + 'static> Device<S> {
                 }
             }
         }
-    }
-}
-
-/// Incoming message from a peer
-pub struct IncomingMessage {
-    pub msg_id: u32,
-    pub preimage: [u8; 32],
-    pub msg_type: Option<u8>,
-    pub payload: Vec<u8>,
-}
-
-impl Connection {
-    /// Receive the next incoming message
-    pub async fn receive(&mut self) -> std::io::Result<IncomingMessage> {
-        let deliver = self.receive_deliver().await?;
-        let msg_type = parse_device_msg_type(&deliver.payload);
-
-        Ok(IncomingMessage {
-            msg_id: deliver.msg_id,
-            preimage: deliver.preimage,
-            msg_type,
-            payload: deliver.payload,
-        })
     }
 }
