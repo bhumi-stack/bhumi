@@ -1,0 +1,17 @@
+[package]
+name = "bhumi-proto"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+description = "Bhumi protocol types and framing"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tokio = { workspace = true, optional = true }
+
+[features]
+default = ["async"]
+async = ["tokio"]
