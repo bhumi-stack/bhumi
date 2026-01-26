@@ -18,12 +18,32 @@ fn hex_to_bytes(hex: &str) -> Option<[u8; 32]> {
     bytes.try_into().ok()
 }
 
+/// Role of a peer - determines what commands they can execute
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PeerRole {
+    /// Owner: full control, can manage invites
+    Owner,
+    /// Writer: can read and modify device state
+    Writer,
+    /// Reader: can only read device state
+    Reader,
+}
+
+impl Default for PeerRole {
+    fn default() -> Self {
+        Self::Reader
+    }
+}
+
 /// Pending invite I created, awaiting handshake
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InviteRecord {
     pub alias: String,
     #[serde(with = "hex_bytes")]
     pub preimage: [u8; 32],
+    #[serde(default)]
+    pub role: PeerRole,
     pub created_at: u64,
 }
 
@@ -45,6 +65,8 @@ pub struct PendingPeerRecord {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerRecord {
     pub alias: String,
+    #[serde(default)]
+    pub role: PeerRole,
     pub last_known_relay: Option<String>,
     pub last_contacted: u64,
 
@@ -189,8 +211,8 @@ impl DeviceState {
         fs::write(path, data).expect("failed to write state file");
     }
 
-    /// Create a new invite for a peer
-    pub fn create_invite(&mut self, alias: &str) -> (InviteRecord, [u8; 32]) {
+    /// Create a new invite for a peer with a specific role
+    pub fn create_invite(&mut self, alias: &str, role: PeerRole) -> (InviteRecord, [u8; 32]) {
         let preimage = random_bytes();
         let commit = sha256(&preimage);
         let now = current_timestamp();
@@ -198,6 +220,7 @@ impl DeviceState {
         let record = InviteRecord {
             alias: alias.to_string(),
             preimage,
+            role,
             created_at: now,
         };
 
@@ -240,9 +263,10 @@ impl DeviceState {
         let new_preimage = random_bytes();
         let new_commit = sha256(&new_preimage);
 
-        // Create peer record
+        // Create peer record with role from invite
         let peer = PeerRecord {
             alias: invite.alias,
+            role: invite.role,
             last_known_relay: peer_relay,
             last_contacted: current_timestamp(),
             issued_preimages: vec![new_preimage],
@@ -266,9 +290,10 @@ impl DeviceState {
             None => return false,
         };
 
-        // Create peer record
+        // Create peer record (role is not relevant for acceptor - the device stores our role)
         let peer = PeerRecord {
             alias: pending.alias,
+            role: PeerRole::Reader, // default, not used on acceptor side
             last_known_relay: peer_relay,
             last_contacted: current_timestamp(),
             issued_preimages: vec![pending.my_preimage],

@@ -22,9 +22,8 @@ pub fn bhumi_home() -> PathBuf {
     home
 }
 
-/// Load or create device identity
-pub fn load_or_create_identity() -> (SecretKey, PublicKey) {
-    let home = bhumi_home();
+/// Load or create device identity from the given home directory
+pub fn load_or_create(home: &PathBuf) -> (SecretKey, PublicKey) {
     let key_path = home.join("identity.key");
 
     if key_path.exists() {
@@ -35,7 +34,6 @@ pub fn load_or_create_identity() -> (SecretKey, PublicKey) {
             .expect("failed to parse identity.key");
         let public_key = secret_key.public_key();
 
-        println!("Loaded identity: {}", public_key);
         (secret_key, public_key)
     } else {
         // Generate new key
@@ -46,9 +44,11 @@ pub fn load_or_create_identity() -> (SecretKey, PublicKey) {
         fs::write(&key_path, secret_key.to_string())
             .expect("failed to write identity.key");
 
-        println!("Created new identity: {}", public_key);
-        println!("  Saved to: {}", key_path.display());
-
         (secret_key, public_key)
     }
+}
+
+/// Load or create device identity using BHUMI_HOME
+pub fn load_or_create_identity() -> (SecretKey, PublicKey) {
+    load_or_create(&bhumi_home())
 }
