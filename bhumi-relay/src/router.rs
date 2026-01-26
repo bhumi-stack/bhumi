@@ -10,6 +10,7 @@ use bhumi_proto::{SEND_OK, SEND_ERR_NOT_CONNECTED, SEND_ERR_INVALID_PREIMAGE, SE
 /// Message to send to a connected device
 pub struct PendingDelivery {
     pub msg_id: u32,
+    pub preimage: [u8; 32],  // The preimage used to route this message
     pub payload: Vec<u8>,
 }
 
@@ -202,7 +203,7 @@ impl Router {
         }
 
         // Queue delivery
-        let delivery = PendingDelivery { msg_id, payload };
+        let delivery = PendingDelivery { msg_id, preimage, payload };
 
         if sender.send(delivery).await.is_err() {
             // Remove from pending on failure

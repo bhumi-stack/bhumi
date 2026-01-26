@@ -244,33 +244,36 @@ impl UpdateCommits {
 #[derive(Debug, Clone)]
 pub struct Deliver {
     pub msg_id: u32,
+    pub preimage: [u8; 32],  // The preimage used to route this message
     pub payload: Vec<u8>,
 }
 
 impl Deliver {
     pub fn to_bytes(&self) -> Vec<u8> {
         let payload_len = self.payload.len() as u32;
-        let mut buf = Vec::with_capacity(4 + 4 + self.payload.len());
+        let mut buf = Vec::with_capacity(4 + 32 + 4 + self.payload.len());
         buf.extend_from_slice(&self.msg_id.to_be_bytes());
+        buf.extend_from_slice(&self.preimage);
         buf.extend_from_slice(&payload_len.to_be_bytes());
         buf.extend_from_slice(&self.payload);
         buf
     }
 
     pub fn from_bytes(data: &[u8]) -> io::Result<Self> {
-        if data.len() < 8 {
+        if data.len() < 4 + 32 + 4 {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "DELIVER too short"));
         }
 
         let msg_id = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
-        let payload_len = u32::from_be_bytes([data[4], data[5], data[6], data[7]]) as usize;
+        let preimage: [u8; 32] = data[4..36].try_into().unwrap();
+        let payload_len = u32::from_be_bytes([data[36], data[37], data[38], data[39]]) as usize;
 
-        if data.len() < 8 + payload_len {
+        if data.len() < 40 + payload_len {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "DELIVER payload truncated"));
         }
 
-        let payload = data[8..8 + payload_len].to_vec();
-        Ok(Self { msg_id, payload })
+        let payload = data[40..40 + payload_len].to_vec();
+        Ok(Self { msg_id, preimage, payload })
     }
 }
 

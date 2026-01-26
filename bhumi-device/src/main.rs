@@ -256,11 +256,11 @@ async fn cmd_listen() -> Result<(), Box<dyn std::error::Error>> {
 
                 match msg_type {
                     Some(DEV_HANDSHAKE_INIT) => {
-                        handle_handshake_init(&mut stream, &mut state, &public_key, deliver.msg_id, &deliver.payload).await?;
+                        handle_handshake_init(&mut stream, &mut state, &public_key, deliver.msg_id, &deliver.preimage, &deliver.payload).await?;
                         state.save(&state_path());
                     }
                     Some(DEV_MESSAGE) => {
-                        handle_message(&mut stream, &mut state, deliver.msg_id, &deliver.payload).await?;
+                        handle_message(&mut stream, &mut state, deliver.msg_id, &deliver.preimage, &deliver.payload).await?;
                         state.save(&state_path());
                     }
                     _ => {
@@ -288,6 +288,7 @@ async fn handle_handshake_init<S: tokio::io::AsyncRead + tokio::io::AsyncWrite +
     state: &mut DeviceState,
     my_public_key: &fastn_id52::PublicKey,
     msg_id: u32,
+    preimage: &[u8; 32],  // The preimage from DELIVER - identifies which invite
     payload: &[u8],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let init = HandshakeInit::from_bytes(payload)?;
@@ -295,48 +296,31 @@ async fn handle_handshake_init<S: tokio::io::AsyncRead + tokio::io::AsyncWrite +
 
     println!("=== HANDSHAKE_INIT from {} ===", &sender_id52_str[..20]);
 
-    // Find which invite this is for by checking all our invites
-    // We need to check which preimage was used - but we don't have it in the payload!
-    // Actually, the preimage was used by the relay to route to us, but we need to
-    // check our invites to find out who this is supposed to be.
+    // Use the preimage from DELIVER to look up the matching invite
+    if let Some((new_preimage, new_commit)) = state.complete_handshake_as_inviter(
+        preimage,
+        init.sender_id52,
+        init.preimage_for_peer,
+        Some(init.relay_url),
+    ) {
+        println!("Handshake accepted!");
 
-    // For now, we'll just accept any HANDSHAKE_INIT and create a peer.
-    // In a real implementation, we'd need the preimage in the DELIVER message.
+        // Send HANDSHAKE_COMPLETE
+        let complete = HandshakeComplete {
+            status: HANDSHAKE_ACCEPTED,
+            preimage_for_peer: new_preimage,
+            relay_url: RELAY_ADDR.to_string(),
+        };
 
-    // Let's look for an invite for this sender (by checking if we have any pending invites)
-    // Actually, we can't know which invite without the preimage...
+        send_ack(stream, msg_id, complete.to_bytes()).await?;
 
-    // TODO: We need the preimage passed through from DELIVER to know which invite this is for.
-    // For now, let's check if we have any invites and use the first one.
+        // Register the new commit with the relay
+        update_commits(stream, vec![new_commit]).await?;
 
-    let invite_preimage = state.invites.keys().next().cloned();
-
-    if let Some(preimage) = invite_preimage {
-        if let Some((new_preimage, new_commit)) = state.complete_handshake_as_inviter(
-            &preimage,
-            init.sender_id52,
-            init.preimage_for_peer,
-            Some(init.relay_url),
-        ) {
-            println!("Handshake accepted!");
-
-            // Send HANDSHAKE_COMPLETE
-            let complete = HandshakeComplete {
-                status: HANDSHAKE_ACCEPTED,
-                preimage_for_peer: new_preimage,
-                relay_url: RELAY_ADDR.to_string(),
-            };
-
-            send_ack(stream, msg_id, complete.to_bytes()).await?;
-
-            // Register the new commit with the relay
-            update_commits(stream, vec![new_commit]).await?;
-
-            return Ok(());
-        }
+        return Ok(());
     }
 
-    println!("No matching invite found, rejecting");
+    println!("No matching invite found for preimage, rejecting");
     let complete = HandshakeComplete {
         status: 1, // rejected
         preimage_for_peer: [0u8; 32],
@@ -351,12 +335,26 @@ async fn handle_message<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>
     stream: &mut S,
     state: &mut DeviceState,
     msg_id: u32,
+    preimage: &[u8; 32],  // The preimage from DELIVER - identifies which peer sent this
     payload: &[u8],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let msg = DeviceMessage::from_bytes(payload)?;
 
-    // Display message
+    // Look up which peer sent this message based on the preimage they used
+    let sender_info = state.lookup_preimage(preimage);
+
+    let (peer_id52, peer_alias) = match &sender_info {
+        Some(state::PreimageLookup::Peer(id52, peer)) => {
+            (Some(*id52), Some(peer.alias.clone()))
+        }
+        _ => (None, None),
+    };
+
+    // Display message with sender info
     println!("=== MESSAGE ===");
+    if let Some(alias) = &peer_alias {
+        println!("From: {}", alias);
+    }
     match msg.content_type {
         0 => {
             let text = String::from_utf8_lossy(&msg.content);
@@ -368,18 +366,30 @@ async fn handle_message<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>
     }
     println!("===============\n");
 
-    // For now, we don't know which peer sent this without the preimage.
-    // Generate a generic response.
-    // TODO: Need preimage in DELIVER to identify sender and renew their preimage.
+    // Generate new preimage for this peer if we know who they are
+    let (next_preimage, new_commit) = if let Some(id52) = peer_id52 {
+        match state.consume_and_renew_preimage(&id52, preimage) {
+            Some((new_preimage, new_commit)) => (new_preimage, Some(new_commit)),
+            None => ([0u8; 32], None),
+        }
+    } else {
+        println!("Warning: Unknown sender (preimage not found)");
+        ([0u8; 32], None)
+    };
 
     let response = DeviceMessageResponse {
         status: 0,
-        next_preimage: [0u8; 32], // TODO: generate proper preimage
+        next_preimage,
         relay_url: RELAY_ADDR.to_string(),
         content: b"Message received".to_vec(),
     };
 
     send_ack(stream, msg_id, response.to_bytes()).await?;
+
+    // Register the new commit with the relay if we generated one
+    if let Some(commit) = new_commit {
+        update_commits(stream, vec![commit]).await?;
+    }
 
     Ok(())
 }

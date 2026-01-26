@@ -185,6 +185,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
     async fn send_delivery(&mut self, delivery: PendingDelivery) -> std::io::Result<()> {
         let deliver = Deliver {
             msg_id: delivery.msg_id,
+            preimage: delivery.preimage,
             payload: delivery.payload,
         };
         write_frame(&mut self.stream, &Frame::deliver(&deliver)).await?;
