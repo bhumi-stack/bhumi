@@ -10,3 +10,14 @@ homepage.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+bhumi-proto = { workspace = true }
+fastn-id52 = { workspace = true }
+tokio = { workspace = true }
+tokio-rustls = "0.26"
+rustls = "0.23"
+sha2 = { workspace = true }
+rand = { workspace = true }
+data-encoding = { workspace = true }
+dirs = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
