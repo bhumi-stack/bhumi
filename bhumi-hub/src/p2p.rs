@@ -14,6 +14,10 @@ pub async fn handle(
     };
 
     match serde_json::from_slice::<Command>(&body)? {
+        Command::Rescan => match bhumi_hub::rescan(home).await {
+            Ok(o) => bhumi_hub::http::json(o),
+            Err(e) => bhumi_hub::bad_request!("failed to scan: {e}"),
+        },
         Command::Render(path) => match bhumi_hub::render(&path, home).await {
             Ok(o) => bhumi_hub::http::json(o),
             Err(e) => bhumi_hub::bad_request!("failed to render: {e}"),
@@ -27,6 +31,7 @@ pub async fn handle(
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub enum Command {
+    Rescan,
     Render(String),
     GetDependencies(bhumi_hub::DependenciesInput),
 }
