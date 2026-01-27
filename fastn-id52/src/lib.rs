@@ -88,7 +88,7 @@
 //! - [`ParseSecretKeyError`]: Errors parsing secret key strings
 //! - [`InvalidSignatureBytesError`]: Invalid signature byte format
 //! - [`SignatureVerificationError`]: Signature verification failures
-//! - [`KeyringError`]: Errors when accessing the system keyring
+//! - [`KeyringError`]: Errors when accessing the system keyring (requires `keyring` feature)
 //!
 //! ## Security
 //!
@@ -97,6 +97,7 @@
 //! uses the operating system's secure random number generator.
 
 mod errors;
+#[cfg(feature = "keyring")]
 mod keyring;
 mod keys;
 
@@ -104,5 +105,6 @@ pub use errors::{
     InvalidKeyBytesError, InvalidSignatureBytesError, ParseId52Error, ParseSecretKeyError,
     SignatureVerificationError,
 };
+#[cfg(feature = "keyring")]
 pub use keyring::KeyringError;
 pub use keys::{PublicKey, SecretKey, Signature};

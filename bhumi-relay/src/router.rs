@@ -168,14 +168,22 @@ impl Router {
 
             let device = match devices.get_mut(&to_id52) {
                 Some(d) => d,
-                None => return SendOutcome {
-                    status: SEND_ERR_NOT_CONNECTED,
-                    payload: Vec::new(),
-                },
+                None => {
+                    println!("    -> ERR: device {} not connected",
+                        data_encoding::BASE32_DNSSEC.encode(&to_id52[..10]));
+                    return SendOutcome {
+                        status: SEND_ERR_NOT_CONNECTED,
+                        payload: Vec::new(),
+                    };
+                }
             };
 
             // Check if commit is valid
             if !device.commits.remove(&commit) {
+                println!("    -> ERR: invalid preimage for device {} (has {} commits, requested commit {})",
+                    data_encoding::BASE32_DNSSEC.encode(&to_id52[..10]),
+                    device.commits.len(),
+                    data_encoding::HEXLOWER.encode(&commit[..8]));
                 return SendOutcome {
                     status: SEND_ERR_INVALID_PREIMAGE,
                     payload: Vec::new(),

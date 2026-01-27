@@ -1,10 +1,7 @@
-//! Connection to relay
+//! Connection to relay (TLS disabled for dev)
 
-use std::sync::Arc;
-use rustls::pki_types::ServerName;
 use tokio::net::TcpStream;
-use tokio_rustls::TlsConnector;
-use tokio_rustls::client::TlsStream;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use bhumi_proto::{Frame, Hello, IAm, Send as SendMsg, Deliver, Ack, SendResult, UpdateCommits, MSG_HELLO, MSG_DELIVER, MSG_SEND_RESULT};
 use bhumi_proto::async_io::{read_frame, write_frame};
@@ -12,7 +9,7 @@ use fastn_id52::SecretKey;
 
 /// A connection to a Bhumi relay
 pub struct Connection {
-    stream: TlsStream<TcpStream>,
+    stream: TcpStream,
 }
 
 impl Connection {
@@ -22,19 +19,7 @@ impl Connection {
         secret_key: &SecretKey,
         commits: Vec<[u8; 32]>,
     ) -> std::io::Result<Self> {
-        // Skip certificate verification (DEV ONLY)
-        let config = rustls::ClientConfig::builder()
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(NoCertVerifier))
-            .with_no_client_auth();
-
-        let connector = TlsConnector::from(Arc::new(config));
-
-        let stream = TcpStream::connect(addr).await?;
-
-        let server_name = ServerName::try_from("localhost")
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
-        let mut stream = connector.connect(server_name, stream).await?;
+        let mut stream = TcpStream::connect(addr).await?;
 
         // Perform handshake
         Self::handshake(&mut stream, secret_key, commits).await?;
@@ -43,7 +28,7 @@ impl Connection {
     }
 
     async fn handshake(
-        stream: &mut TlsStream<TcpStream>,
+        stream: &mut TcpStream,
         secret_key: &SecretKey,
         commits: Vec<[u8; 32]>,
     ) -> std::io::Result<()> {
@@ -126,55 +111,5 @@ impl Connection {
         }
 
         Deliver::from_bytes(&frame.payload)
-    }
-}
-
-// Skip certificate verification for self-signed certs (DEV ONLY)
-#[derive(Debug)]
-struct NoCertVerifier;
-
-impl rustls::client::danger::ServerCertVerifier for NoCertVerifier {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &rustls::pki_types::CertificateDer<'_>,
-        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
-        _server_name: &ServerName<'_>,
-        _ocsp_response: &[u8],
-        _now: rustls::pki_types::UnixTime,
-    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        _message: &[u8],
-        _cert: &rustls::pki_types::CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        _message: &[u8],
-        _cert: &rustls::pki_types::CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        vec![
-            rustls::SignatureScheme::RSA_PKCS1_SHA256,
-            rustls::SignatureScheme::RSA_PKCS1_SHA384,
-            rustls::SignatureScheme::RSA_PKCS1_SHA512,
-            rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
-            rustls::SignatureScheme::ECDSA_NISTP384_SHA384,
-            rustls::SignatureScheme::ECDSA_NISTP521_SHA512,
-            rustls::SignatureScheme::RSA_PSS_SHA256,
-            rustls::SignatureScheme::RSA_PSS_SHA384,
-            rustls::SignatureScheme::RSA_PSS_SHA512,
-            rustls::SignatureScheme::ED25519,
-        ]
     }
 }

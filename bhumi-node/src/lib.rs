@@ -73,7 +73,9 @@ pub use serde_json::{json, Value as JsonValue};
 
 pub use bhumi_proto::{
     HandshakeInit, HandshakeComplete, SendResult,
-    HANDSHAKE_ACCEPTED, HANDSHAKE_REJECTED, SEND_OK,
+    HANDSHAKE_ACCEPTED, HANDSHAKE_REJECTED,
+    SEND_OK, SEND_ERR_NOT_CONNECTED, SEND_ERR_INVALID_PREIMAGE,
+    SEND_ERR_TIMEOUT, SEND_ERR_DISCONNECTED,
     DEV_HANDSHAKE_INIT, parse_device_msg_type,
 };
 

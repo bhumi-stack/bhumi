@@ -2,12 +2,11 @@
 name = "bhumi-proto"
 version = "0.1.0"
 authors.workspace = true
-edition.workspace = true
+edition = "2021"  # Use 2021 for ESP32 compatibility
 description = "Bhumi protocol types and framing"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-rust-version.workspace = true
 
 [dependencies]
 tokio = { workspace = true, optional = true }

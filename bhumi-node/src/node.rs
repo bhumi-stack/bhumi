@@ -177,7 +177,7 @@ impl<S: Send + Sync + 'static> Node<S> {
         let result = conn.send(their_id52, their_preimage, init.to_bytes()).await?;
 
         // Check for HANDSHAKE_COMPLETE
-        if result.status == bhumi_proto::SEND_OK {
+        if result.status == crate::SEND_OK {
             let complete = HandshakeComplete::from_bytes(&result.payload)?;
 
             if complete.status == HANDSHAKE_ACCEPTED {
@@ -229,8 +229,15 @@ impl<S: Send + Sync + 'static> Node<S> {
         // Send command
         let result = conn.send(peer_id52, preimage, payload).await?;
 
-        if result.status != bhumi_proto::SEND_OK {
-            return Err(format!("send failed with status {}", result.status).into());
+        if result.status != crate::SEND_OK {
+            let status_msg = match result.status {
+                crate::SEND_ERR_NOT_CONNECTED => "recipient not connected to relay",
+                crate::SEND_ERR_INVALID_PREIMAGE => "invalid preimage (recipient doesn't recognize it - may need to re-pair)",
+                crate::SEND_ERR_TIMEOUT => "recipient timed out",
+                crate::SEND_ERR_DISCONNECTED => "recipient disconnected during request",
+                _ => "unknown error",
+            };
+            return Err(format!("send failed: {} (status {})", status_msg, result.status).into());
         }
 
         // Parse response (may have new preimage appended)

@@ -1,15 +1,19 @@
 [package]
 name = "fastn-id52"
 version = "0.1.2"
-edition.workspace = true
+edition = "2021"  # Use 2021 for ESP32 compatibility
 authors.workspace = true
 description = "fastn ID52 identity and cryptographic key management"
 homepage.workspace = true
 license.workspace = true
+
+[features]
+default = ["keyring"]
+keyring = ["dep:keyring"]
 
 [dependencies]
 ed25519-dalek.workspace = true
 data-encoding.workspace = true
 serde.workspace = true
 rand.workspace = true
-keyring.workspace = true
+keyring = { workspace = true, optional = true }

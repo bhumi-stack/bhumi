@@ -17,7 +17,7 @@
 use std::path::PathBuf;
 use bhumi_node::{Node, NodeConfig, json};
 
-const RELAY_ADDR: &str = "127.0.0.1:8443";
+const RELAY_ADDR: &str = "64.227.143.197:8443";
 
 fn get_home() -> PathBuf {
     std::env::var("CONTROLLER_HOME")

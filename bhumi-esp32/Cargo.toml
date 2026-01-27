@@ -1,0 +1,33 @@
+[package]
+name = "bhumi-esp32"
+version = "0.1.0"
+edition = "2021"
+authors = ["Amit Upadhyay <upadhyay@gmail.com>"]
+license = "UPL-1.0"
+
+[dependencies]
+esp-idf-svc = { version = "0.50", features = ["alloc"] }
+esp-idf-hal = "0.45"
+embedded-svc = "0.28"
+log = "0.4"
+esp-idf-sys = { version = "0.36", features = ["binstart"] }
+
+# bhumi dependencies - no async, no keyring
+bhumi-proto = { path = "../bhumi-proto", default-features = false }
+fastn-id52 = { path = "../fastn-id52", default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+data-encoding = "2"
+rand = "0.8"
+anyhow = "1.0"
+
+[build-dependencies]
+embuild = "0.33"
+
+[profile.release]
+opt-level = "s"
+
+[profile.dev]
+debug = true
+opt-level = "z"
