@@ -20,10 +20,10 @@ use log::*;
 use std::sync::{atomic::AtomicBool, Mutex};
 
 // Configuration
-// const WIFI_SSID: &str = "iPhone1111";
-// const WIFI_PASS: &str = "xxxxx";
-const WIFI_SSID: &str = "xxxx";
-const WIFI_PASS: &str = "xxxx";
+// const WIFI_SSID: &str = "iPhone";
+// const WIFI_PASS: &str = "dodododo";
+const WIFI_SSID: &str = "A2102-One";
+const WIFI_PASS: &str = "9820715512";
 const RELAY_ADDR: &str = "64.227.143.197:8443";
 
 // Switch state

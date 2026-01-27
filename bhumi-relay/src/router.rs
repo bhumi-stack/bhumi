@@ -169,7 +169,7 @@ impl Router {
             let device = match devices.get_mut(&to_id52) {
                 Some(d) => d,
                 None => {
-                    println!("    -> ERR: device {} not connected",
+                    println!("    -> ERR: device {} not in map",
                         data_encoding::BASE32_DNSSEC.encode(&to_id52[..10]));
                     return SendOutcome {
                         status: SEND_ERR_NOT_CONNECTED,
@@ -177,6 +177,19 @@ impl Router {
                     };
                 }
             };
+
+            // Check if device's channel is still alive FIRST
+            // (network issues can leave stale entries in map)
+            if device.sender.is_closed() {
+                println!("    -> ERR: device {} channel closed (stale entry)",
+                    data_encoding::BASE32_DNSSEC.encode(&to_id52[..10]));
+                // Clean up stale entry
+                devices.remove(&to_id52);
+                return SendOutcome {
+                    status: SEND_ERR_NOT_CONNECTED,
+                    payload: Vec::new(),
+                };
+            }
 
             // Check if commit is valid
             if !device.commits.remove(&commit) {

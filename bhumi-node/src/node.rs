@@ -161,11 +161,11 @@ impl<S: Send + Sync + 'static> Node<S> {
         let (their_id52, their_preimage) = parse_invite_token(token)?;
 
         // Accept the invite (creates pending peer record)
-        let (my_preimage, my_commit) = self.state.accept_invite(their_id52, their_preimage, alias);
+        let (my_preimage, _my_commit) = self.state.accept_invite(their_id52, their_preimage, alias);
         self.save();
 
-        // Connect to relay
-        let mut conn = Connection::connect(relay_addr, &self.secret_key, vec![my_commit]).await?;
+        // Connect anonymously (sender identity not revealed to relay)
+        let mut conn = Connection::connect_anonymous(relay_addr).await?;
 
         // Send HANDSHAKE_INIT
         let init = HandshakeInit {
@@ -219,8 +219,8 @@ impl<S: Send + Sync + 'static> Node<S> {
         let preimage = self.state.get_peer_preimage(&peer_id52)
             .ok_or("no preimage for peer")?;
 
-        // Connect to relay
-        let mut conn = Connection::connect(relay_addr, &self.secret_key, self.get_commits()).await?;
+        // Connect anonymously (sender identity not revealed to relay)
+        let mut conn = Connection::connect_anonymous(relay_addr).await?;
 
         // Create request
         let request = Request::with_args(cmd, args);

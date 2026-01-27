@@ -1,7 +1,6 @@
 //! Connection to relay (TLS disabled for dev)
 
 use tokio::net::TcpStream;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use bhumi_proto::{Frame, Hello, IAm, Send as SendMsg, Deliver, Ack, SendResult, UpdateCommits, MSG_HELLO, MSG_DELIVER, MSG_SEND_RESULT};
 use bhumi_proto::async_io::{read_frame, write_frame};
@@ -13,7 +12,24 @@ pub struct Connection {
 }
 
 impl Connection {
-    /// Connect to a relay and perform handshake
+    /// Connect anonymously for send-only mode (no I_AM, sender stays anonymous)
+    pub async fn connect_anonymous(addr: &str) -> std::io::Result<Self> {
+        let mut stream = TcpStream::connect(addr).await?;
+
+        // Read HELLO (required to establish connection)
+        let frame = read_frame(&mut stream).await?;
+        if frame.msg_type != MSG_HELLO {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("expected HELLO, got 0x{:04x}", frame.msg_type),
+            ));
+        }
+        // We don't send I_AM - sender remains anonymous to relay
+
+        Ok(Self { stream })
+    }
+
+    /// Connect to a relay with identity (for devices that need to receive messages)
     pub async fn connect(
         addr: &str,
         secret_key: &SecretKey,
@@ -21,7 +37,7 @@ impl Connection {
     ) -> std::io::Result<Self> {
         let mut stream = TcpStream::connect(addr).await?;
 
-        // Perform handshake
+        // Perform full handshake with I_AM
         Self::handshake(&mut stream, secret_key, commits).await?;
 
         Ok(Self { stream })
