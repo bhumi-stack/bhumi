@@ -3,9 +3,7 @@
 //! This firmware implements a smart electrical switch using the Bhumi P2P protocol.
 //! It connects to a relay server via WiFi and responds to commands from paired devices.
 //!
-//! WiFi credentials can be configured via:
-//! 1. BLE provisioning (use bhumi-ble CLI tool)
-//! 2. Compile-time file (wifi_credentials.txt) as fallback
+//! WiFi credentials are configured via BLE provisioning using the switch-controller CLI.
 
 mod ble;
 mod connection;
@@ -24,18 +22,7 @@ use esp_idf_svc::{
 use log::*;
 use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
-// Fallback WiFi credentials from compile-time file (gitignored)
-// Format: first line = SSID, second line = password
-const FALLBACK_WIFI_CREDENTIALS: &str = include_str!("../wifi_credentials.txt");
 const RELAY_ADDR: &str = "64.227.143.197:8443";
-
-fn fallback_wifi_ssid() -> &'static str {
-    FALLBACK_WIFI_CREDENTIALS.lines().next().unwrap_or("").trim()
-}
-
-fn fallback_wifi_pass() -> &'static str {
-    FALLBACK_WIFI_CREDENTIALS.lines().nth(1).unwrap_or("").trim()
-}
 
 // Switch state
 static IS_ON: AtomicBool = AtomicBool::new(false);
@@ -95,22 +82,13 @@ fn main() -> anyhow::Result<()> {
         if saved_led_state { "ON" } else { "OFF" }
     );
 
-    // Get WiFi credentials (NVS first, then fallback to compile-time)
-    let (wifi_ssid, wifi_pass) = match ble::load_wifi_credentials(&ble_nvs) {
-        Some((ssid, pass)) => {
-            info!("Using WiFi credentials from NVS: {}", ssid);
-            (ssid, pass)
-        }
-        None => {
-            info!("Using fallback WiFi credentials: {}", fallback_wifi_ssid());
-            (fallback_wifi_ssid().to_string(), fallback_wifi_pass().to_string())
-        }
-    };
+    // Get WiFi credentials from NVS (provisioned via BLE)
+    let wifi_creds = ble::load_wifi_credentials(&ble_nvs);
 
     // Check if we have WiFi credentials
-    if wifi_ssid.is_empty() {
+    if wifi_creds.is_none() {
         warn!("No WiFi credentials configured!");
-        warn!("Use BLE provisioning (bhumi-ble CLI) to configure WiFi");
+        warn!("Use BLE provisioning (switch-controller ble provision) to configure WiFi");
         // Stay in BLE-only mode until credentials are provided
         loop {
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -120,6 +98,10 @@ fn main() -> anyhow::Result<()> {
             }
         }
     }
+
+    let (wifi_ssid, wifi_pass) = wifi_creds.unwrap();
+    info!("Using WiFi credentials from NVS: SSID='{}' (len={}), password len={}",
+          wifi_ssid, wifi_ssid.len(), wifi_pass.len());
 
     // Connect to WiFi
     let mut wifi = BlockingWifi::wrap(
@@ -176,7 +158,7 @@ fn main() -> anyhow::Result<()> {
         }
 
         // Ensure WiFi is connected before attempting relay connection
-        ensure_wifi_connected(&mut wifi, &wifi_ssid, &wifi_pass, &ble_state, &mut ble_nvs);
+        ensure_wifi_connected(&mut wifi, &ble_state, &mut ble_nvs);
 
         match run_connection(&mut device_state, &ble_state, &mut ble_nvs) {
             Ok(()) => info!("Connection closed, reconnecting..."),
@@ -207,8 +189,6 @@ fn restart_device() -> ! {
 /// Check WiFi connectivity and reconnect if needed
 fn ensure_wifi_connected(
     wifi: &mut BlockingWifi<EspWifi<'static>>,
-    ssid: &str,
-    password: &str,
     ble_state: &Arc<Mutex<ble::BleState>>,
     ble_nvs: &mut EspNvs<NvsDefault>,
 ) {
@@ -265,9 +245,13 @@ fn ensure_wifi_connected(
 }
 
 fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>, ssid: &str, password: &str) -> anyhow::Result<()> {
+    use esp_idf_svc::wifi::AuthMethod;
+
+    // Force WPA2 to avoid SAE negotiation issues with WPA2/WPA3 mixed networks
     let wifi_config = Configuration::Client(ClientConfiguration {
         ssid: ssid.try_into().map_err(|_| anyhow::anyhow!("SSID too long"))?,
         password: password.try_into().map_err(|_| anyhow::anyhow!("Password too long"))?,
+        auth_method: AuthMethod::WPA2Personal,
         ..Default::default()
     });
 
