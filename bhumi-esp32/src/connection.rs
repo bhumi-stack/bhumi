@@ -70,12 +70,15 @@ impl Connection {
         Ok(Self { stream })
     }
 
-    /// Receive a message (blocking)
-    pub fn receive(&mut self) -> anyhow::Result<ReceivedMessage> {
+    /// Receive a message (blocking, respects read timeout)
+    pub fn receive(&mut self) -> std::io::Result<ReceivedMessage> {
         let frame = Frame::read_from(&mut self.stream)?;
 
         if frame.msg_type != MSG_DELIVER {
-            anyhow::bail!("expected DELIVER, got msg_type {}", frame.msg_type);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("expected DELIVER, got msg_type {}", frame.msg_type),
+            ));
         }
 
         let deliver = Deliver::from_bytes(&frame.payload)?;
@@ -114,5 +117,10 @@ impl Connection {
         self.stream.flush()?;
         info!("Sent UPDATE_COMMITS ({} commits)", update.commits.len());
         Ok(())
+    }
+
+    /// Set read timeout for non-blocking BLE command checks
+    pub fn set_read_timeout(&mut self, timeout: Option<std::time::Duration>) -> std::io::Result<()> {
+        self.stream.set_read_timeout(timeout)
     }
 }

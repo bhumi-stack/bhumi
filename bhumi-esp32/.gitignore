@@ -1,0 +1,5 @@
+# WiFi credentials (don't commit!)
+wifi_credentials.txt
+
+# Build artifacts
+target/

@@ -2,7 +2,12 @@
 //!
 //! This firmware implements a smart electrical switch using the Bhumi P2P protocol.
 //! It connects to a relay server via WiFi and responds to commands from paired devices.
+//!
+//! WiFi credentials can be configured via:
+//! 1. BLE provisioning (use bhumi-ble CLI tool)
+//! 2. Compile-time file (wifi_credentials.txt) as fallback
 
+mod ble;
 mod connection;
 mod state;
 mod switch;
@@ -13,18 +18,24 @@ use esp_idf_svc::{
         gpio::{Gpio2, Output, PinDriver},
         prelude::Peripherals,
     },
-    nvs::EspDefaultNvsPartition,
+    nvs::{EspDefaultNvsPartition, EspNvs, NvsDefault},
     wifi::{BlockingWifi, ClientConfiguration, Configuration, EspWifi},
 };
 use log::*;
-use std::sync::{atomic::AtomicBool, Mutex};
+use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
-// Configuration
-// const WIFI_SSID: &str = "iPhone";
-// const WIFI_PASS: &str = "dodododo";
-const WIFI_SSID: &str = "A2102-One";
-const WIFI_PASS: &str = "9820715512";
+// Fallback WiFi credentials from compile-time file (gitignored)
+// Format: first line = SSID, second line = password
+const FALLBACK_WIFI_CREDENTIALS: &str = include_str!("../wifi_credentials.txt");
 const RELAY_ADDR: &str = "64.227.143.197:8443";
+
+fn fallback_wifi_ssid() -> &'static str {
+    FALLBACK_WIFI_CREDENTIALS.lines().next().unwrap_or("").trim()
+}
+
+fn fallback_wifi_pass() -> &'static str {
+    FALLBACK_WIFI_CREDENTIALS.lines().nth(1).unwrap_or("").trim()
+}
 
 // Switch state
 static IS_ON: AtomicBool = AtomicBool::new(false);
@@ -50,7 +61,7 @@ fn main() -> anyhow::Result<()> {
     esp_idf_svc::sys::link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
 
-    info!("Bhumi Smart Switch v0.1");
+    info!("Bhumi Smart Switch v0.2");
     info!("Initializing...");
 
     // Get peripherals
@@ -63,9 +74,17 @@ fn main() -> anyhow::Result<()> {
     *LED.lock().unwrap() = Some(led);
     info!("LED initialized on GPIO2");
 
+    // Open NVS for BLE module
+    let mut ble_nvs = EspNvs::new(nvs.clone(), "bhumi", true)?;
+
     // Initialize state from NVS
     let mut device_state = state::DeviceState::load(&nvs);
     info!("Device ID: {}", device_state.id52());
+
+    // Start BLE server (always running for provisioning)
+    let device_name = format!("Bhumi-{}", &device_state.id52()[..8]);
+    let ble_state = ble::start_ble_server(&device_name);
+    info!("BLE provisioning enabled");
 
     // Restore LED state from NVS
     let saved_led_state = device_state.load_led_state();
@@ -76,17 +95,58 @@ fn main() -> anyhow::Result<()> {
         if saved_led_state { "ON" } else { "OFF" }
     );
 
+    // Get WiFi credentials (NVS first, then fallback to compile-time)
+    let (wifi_ssid, wifi_pass) = match ble::load_wifi_credentials(&ble_nvs) {
+        Some((ssid, pass)) => {
+            info!("Using WiFi credentials from NVS: {}", ssid);
+            (ssid, pass)
+        }
+        None => {
+            info!("Using fallback WiFi credentials: {}", fallback_wifi_ssid());
+            (fallback_wifi_ssid().to_string(), fallback_wifi_pass().to_string())
+        }
+    };
+
+    // Check if we have WiFi credentials
+    if wifi_ssid.is_empty() {
+        warn!("No WiFi credentials configured!");
+        warn!("Use BLE provisioning (bhumi-ble CLI) to configure WiFi");
+        // Stay in BLE-only mode until credentials are provided
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            if ble::check_ble_command(&ble_state, &mut ble_nvs) {
+                info!("Restarting device...");
+                restart_device();
+            }
+        }
+    }
+
     // Connect to WiFi
     let mut wifi = BlockingWifi::wrap(
         EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs.clone()))?,
         sys_loop,
     )?;
 
-    connect_wifi(&mut wifi)?;
-    info!(
-        "WiFi connected, IP: {:?}",
-        wifi.wifi().sta_netif().get_ip_info()?
-    );
+    match connect_wifi(&mut wifi, &wifi_ssid, &wifi_pass) {
+        Ok(()) => {
+            info!(
+                "WiFi connected, IP: {:?}",
+                wifi.wifi().sta_netif().get_ip_info()?
+            );
+        }
+        Err(e) => {
+            error!("WiFi connection failed: {:?}", e);
+            warn!("Waiting for BLE provisioning with new credentials...");
+            // Stay in BLE-only mode until new credentials are provided
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                if ble::check_ble_command(&ble_state, &mut ble_nvs) {
+                    info!("Restarting device...");
+                    restart_device();
+                }
+            }
+        }
+    }
 
     // Print invite token if no peers yet
     if device_state.peer_count() == 0 {
@@ -109,22 +169,49 @@ fn main() -> anyhow::Result<()> {
 
     // Main loop - connect to relay and handle messages
     loop {
-        // Ensure WiFi is connected before attempting relay connection
-        ensure_wifi_connected(&mut wifi);
+        // Check for BLE commands (reset, new credentials)
+        if ble::check_ble_command(&ble_state, &mut ble_nvs) {
+            info!("BLE command received, restarting device...");
+            restart_device();
+        }
 
-        match run_connection(&mut device_state) {
+        // Ensure WiFi is connected before attempting relay connection
+        ensure_wifi_connected(&mut wifi, &wifi_ssid, &wifi_pass, &ble_state, &mut ble_nvs);
+
+        match run_connection(&mut device_state, &ble_state, &mut ble_nvs) {
             Ok(()) => info!("Connection closed, reconnecting..."),
             Err(e) => {
                 error!("Connection error: {:?}", e);
-                // Wait before reconnecting
-                std::thread::sleep(std::time::Duration::from_secs(5));
+                // Wait before reconnecting, but keep checking BLE
+                for _ in 0..50 {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    if ble::check_ble_command(&ble_state, &mut ble_nvs) {
+                        info!("BLE command received, restarting device...");
+                        restart_device();
+                    }
+                }
             }
         }
     }
 }
 
+/// Restart the device
+fn restart_device() -> ! {
+    info!("Restarting in 1 second...");
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    unsafe {
+        esp_idf_svc::sys::esp_restart();
+    }
+}
+
 /// Check WiFi connectivity and reconnect if needed
-fn ensure_wifi_connected(wifi: &mut BlockingWifi<EspWifi<'static>>) {
+fn ensure_wifi_connected(
+    wifi: &mut BlockingWifi<EspWifi<'static>>,
+    ssid: &str,
+    password: &str,
+    ble_state: &Arc<Mutex<ble::BleState>>,
+    ble_nvs: &mut EspNvs<NvsDefault>,
+) {
     // Check if WiFi is connected
     if wifi.is_connected().unwrap_or(false) {
         return;
@@ -135,6 +222,12 @@ fn ensure_wifi_connected(wifi: &mut BlockingWifi<EspWifi<'static>>) {
     // Try to reconnect with exponential backoff
     let mut retry_delay = 1;
     loop {
+        // Check for BLE commands while reconnecting
+        if ble::check_ble_command(ble_state, ble_nvs) {
+            info!("BLE command received during reconnect, restarting...");
+            restart_device();
+        }
+
         // Try to reconnect
         match wifi.connect() {
             Ok(()) => {
@@ -159,21 +252,40 @@ fn ensure_wifi_connected(wifi: &mut BlockingWifi<EspWifi<'static>>) {
             }
         }
 
-        std::thread::sleep(std::time::Duration::from_secs(retry_delay));
+        // Sleep in small increments to check BLE
+        for _ in 0..(retry_delay * 10) {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            if ble::check_ble_command(ble_state, ble_nvs) {
+                info!("BLE command received during reconnect, restarting...");
+                restart_device();
+            }
+        }
         retry_delay = (retry_delay * 2).min(60); // Cap at 60 seconds
     }
 }
 
-fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>) -> anyhow::Result<()> {
+fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>, ssid: &str, password: &str) -> anyhow::Result<()> {
     let wifi_config = Configuration::Client(ClientConfiguration {
-        ssid: WIFI_SSID.try_into().unwrap(),
-        password: WIFI_PASS.try_into().unwrap(),
+        ssid: ssid.try_into().map_err(|_| anyhow::anyhow!("SSID too long"))?,
+        password: password.try_into().map_err(|_| anyhow::anyhow!("Password too long"))?,
         ..Default::default()
     });
 
     wifi.set_configuration(&wifi_config)?;
     wifi.start()?;
-    info!("WiFi started, connecting to {}...", WIFI_SSID);
+
+    // Scan for available networks (debug)
+    info!("Scanning for WiFi networks...");
+    let scan_result = wifi.scan()?;
+    info!("Found {} networks:", scan_result.len());
+    for ap in scan_result.iter().take(10) {
+        info!(
+            "  - {} (ch:{}, rssi:{}dBm, auth:{:?})",
+            ap.ssid, ap.channel, ap.signal_strength, ap.auth_method
+        );
+    }
+
+    info!("Connecting to {}...", ssid);
 
     wifi.connect()?;
     info!("WiFi connected!");
@@ -184,7 +296,11 @@ fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>) -> anyhow::Result<()>
     Ok(())
 }
 
-fn run_connection(device_state: &mut state::DeviceState) -> anyhow::Result<()> {
+fn run_connection(
+    device_state: &mut state::DeviceState,
+    ble_state: &Arc<Mutex<ble::BleState>>,
+    ble_nvs: &mut EspNvs<NvsDefault>,
+) -> anyhow::Result<()> {
     info!("Connecting to relay at {}...", RELAY_ADDR);
 
     let mut conn = connection::Connection::connect(
@@ -195,31 +311,50 @@ fn run_connection(device_state: &mut state::DeviceState) -> anyhow::Result<()> {
 
     info!("Connected to relay");
 
+    // Set a shorter read timeout so we can check BLE commands
+    conn.set_read_timeout(Some(std::time::Duration::from_millis(500)))?;
+
     loop {
-        let msg = conn.receive()?;
+        // Check for BLE commands
+        if ble::check_ble_command(ble_state, ble_nvs) {
+            info!("BLE command received, restarting...");
+            restart_device();
+        }
 
-        // Check if it's a handshake or command
-        if msg.is_handshake() {
-            if let Some((response, new_commit)) = device_state.handle_handshake(&msg) {
-                conn.send_ack(msg.msg_id, response)?;
-                if let Some(commit) = new_commit {
-                    conn.update_commits(vec![commit])?;
+        // Try to receive a message (with timeout)
+        match conn.receive() {
+            Ok(msg) => {
+                // Check if it's a handshake or command
+                if msg.is_handshake() {
+                    if let Some((response, new_commit)) = device_state.handle_handshake(&msg) {
+                        conn.send_ack(msg.msg_id, response)?;
+                        if let Some(commit) = new_commit {
+                            conn.update_commits(vec![commit])?;
+                        }
+                    } else {
+                        conn.send_ack(msg.msg_id, device_state.reject_handshake())?;
+                    }
+                } else {
+                    // Handle command
+                    let (response, new_commit) = switch::handle_command(device_state, &msg);
+                    let mut response_bytes = response;
+
+                    // Append new preimage if available
+                    if let Some((new_preimage, commit)) = new_commit {
+                        response_bytes.extend_from_slice(&new_preimage);
+                        conn.update_commits(vec![commit])?;
+                    }
+
+                    conn.send_ack(msg.msg_id, response_bytes)?;
                 }
-            } else {
-                conn.send_ack(msg.msg_id, device_state.reject_handshake())?;
             }
-        } else {
-            // Handle command
-            let (response, new_commit) = switch::handle_command(device_state, &msg);
-            let mut response_bytes = response;
-
-            // Append new preimage if available
-            if let Some((new_preimage, commit)) = new_commit {
-                response_bytes.extend_from_slice(&new_preimage);
-                conn.update_commits(vec![commit])?;
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+                // Timeout - loop back and check BLE
+                continue;
             }
-
-            conn.send_ack(msg.msg_id, response_bytes)?;
+            Err(e) => {
+                return Err(e.into());
+            }
         }
     }
 }

@@ -6,11 +6,14 @@ authors = ["Amit Upadhyay <upadhyay@gmail.com>"]
 license = "UPL-1.0"
 
 [dependencies]
-esp-idf-svc = { version = "0.50", features = ["alloc"] }
+esp-idf-svc = { version = "0.51", features = ["alloc"] }
 esp-idf-hal = "0.45"
 embedded-svc = "0.28"
 log = "0.4"
 esp-idf-sys = { version = "0.36", features = ["binstart"] }
+
+# BLE support
+esp32-nimble = "0.11"
 
 # bhumi dependencies - no async, no keyring
 bhumi-proto = { path = "../bhumi-proto", default-features = false }
@@ -31,3 +34,4 @@ opt-level = "s"
 [profile.dev]
 debug = true
 opt-level = "z"
+
