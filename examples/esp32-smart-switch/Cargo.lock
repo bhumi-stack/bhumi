@@ -63,24 +63,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
-name = "bhumi-esp32"
+name = "bhumi-mcu"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "bhumi-proto",
- "data-encoding",
- "embedded-svc",
- "embuild",
- "esp-idf-hal",
- "esp-idf-svc",
- "esp-idf-sys",
- "esp32-nimble",
- "fastn-id52",
- "log",
- "rand",
- "serde",
- "serde_json",
- "sha2",
 ]
 
 [[package]]
@@ -759,6 +745,28 @@ dependencies = [
  "uuid",
  "zerocopy",
  "zerocopy-derive",
+]
+
+[[package]]
+name = "esp32-smart-switch"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bhumi-mcu",
+ "bhumi-proto",
+ "data-encoding",
+ "embedded-svc",
+ "embuild",
+ "esp-idf-hal",
+ "esp-idf-svc",
+ "esp-idf-sys",
+ "esp32-nimble",
+ "fastn-id52",
+ "log",
+ "rand",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

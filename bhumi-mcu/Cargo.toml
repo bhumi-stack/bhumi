@@ -1,0 +1,10 @@
+[package]
+name = "bhumi-mcu"
+version = "0.1.0"
+edition = "2021"
+authors = ["Amit Upadhyay <upadhyay@gmail.com>"]
+description = "Bhumi MCU library - traits for IoT device implementations"
+license = "UPL-1.0"
+
+[dependencies]
+bhumi-proto = { path = "../bhumi-proto", default-features = false }

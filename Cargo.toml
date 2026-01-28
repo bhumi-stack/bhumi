@@ -1,6 +1,15 @@
 [workspace]
-members = ["bhumi-ble", "bhumi-hub", "bhumi-node", "bhumi-proto", "bhumi-relay", "fastn-id52"]
-exclude = ["bhumi-esp32"]
+members = [
+    "bhumi-hub",
+    "bhumi-mcu",
+    "bhumi-ble-controller",
+    "bhumi-node",
+    "bhumi-proto",
+    "bhumi-relay",
+    "fastn-id52",
+    "examples/switch-controller",
+]
+exclude = ["examples/esp32-smart-switch"]
 resolver = "2"
 
 [workspace.package]

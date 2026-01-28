@@ -104,12 +104,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d809780667f4410e7c41b07f52439b94d2bdf8528eeedc287fa38d3b7f95d82"
 
 [[package]]
-name = "bhumi-ble"
+name = "bhumi-ble-controller"
 version = "0.1.0"
 dependencies = [
+ "bhumi-proto",
  "btleplug",
- "clap",
- "futures",
  "tokio",
  "uuid",
 ]
@@ -129,6 +128,13 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.17",
  "tokio",
+]
+
+[[package]]
+name = "bhumi-mcu"
+version = "0.1.0"
+dependencies = [
+ "bhumi-proto",
 ]
 
 [[package]]
@@ -1518,6 +1524,17 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "switch-controller"
+version = "0.1.0"
+dependencies = [
+ "bhumi-ble-controller",
+ "bhumi-node",
+ "clap",
+ "data-encoding",
+ "tokio",
+]
 
 [[package]]
 name = "syn"

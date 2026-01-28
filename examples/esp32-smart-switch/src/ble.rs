@@ -3,22 +3,25 @@
 //! Runs a GATT server that allows BLE clients to:
 //! - Send WiFi SSID and password
 //! - Trigger device reset (clear all settings)
+//!
+//! Uses UUIDs and commands from bhumi_mcu::ble protocol.
 
 use esp32_nimble::{uuid128, BLEDevice, NimbleProperties, utilities::BleUuid};
 use esp_idf_svc::nvs::{EspNvs, NvsDefault};
 use log::*;
 use std::sync::{Arc, Mutex};
 
-// BLE Service and Characteristic UUIDs (must match bhumi-ble CLI)
+// Use command constants from bhumi-mcu
+use bhumi_mcu::ble::commands;
+
+// BLE Service and Characteristic UUIDs
+// These must match bhumi_mcu::ble::{SERVICE_UUID, WIFI_SSID_UUID, etc.}
+// We use uuid128! macro for compile-time generation of BleUuid
 const SERVICE_UUID: BleUuid = uuid128!("b40e1000-5e7c-1c3e-0000-000000000000");
 const WIFI_SSID_UUID: BleUuid = uuid128!("b40e1001-5e7c-1c3e-0000-000000000000");
 const WIFI_PASS_UUID: BleUuid = uuid128!("b40e1002-5e7c-1c3e-0000-000000000000");
 const COMMAND_UUID: BleUuid = uuid128!("b40e1003-5e7c-1c3e-0000-000000000000");
 const STATUS_UUID: BleUuid = uuid128!("b40e1004-5e7c-1c3e-0000-000000000000");
-
-// Commands
-const CMD_RESET: u8 = 0x01;
-const CMD_PROVISION: u8 = 0x02;
 
 // NVS keys for WiFi credentials
 const KEY_WIFI_SSID: &str = "wifi_ssid";
@@ -60,6 +63,10 @@ pub fn start_ble_server(device_name: &str) -> Arc<Mutex<BleState>> {
     let state = Arc::new(Mutex::new(BleState::new()));
 
     let ble_device = BLEDevice::take();
+
+    // Set the device name (this is what shows up in BLE scans)
+    BLEDevice::set_device_name(device_name).expect("Failed to set device name");
+
     let server = ble_device.get_server();
 
     // Set connection callbacks
@@ -116,13 +123,13 @@ pub fn start_ble_server(device_name: &str) -> Arc<Mutex<BleState>> {
         let data = args.recv_data();
         if !data.is_empty() {
             match data[0] {
-                CMD_RESET => {
+                commands::RESET => {
                     info!("BLE: Reset command received");
                     if let Ok(mut s) = cmd_state.lock() {
                         s.command = BleCommand::Reset;
                     }
                 }
-                CMD_PROVISION => {
+                commands::PROVISION => {
                     info!("BLE: Provision command received");
                     if let Ok(mut s) = cmd_state.lock() {
                         if !s.ssid.is_empty() && !s.password.is_empty() {

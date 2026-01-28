@@ -1,0 +1,18 @@
+[package]
+name = "switch-controller"
+version = "0.1.0"
+edition = "2024"
+authors = ["Amit Upadhyay <upadhyay@gmail.com>"]
+license = "UPL-1.0"
+description = "CLI to control Bhumi smart switches via BLE and relay"
+
+[[bin]]
+name = "switch-controller"
+path = "src/main.rs"
+
+[dependencies]
+bhumi-ble-controller = { path = "../../bhumi-ble-controller" }
+bhumi-node = { path = "../../bhumi-node" }
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+data-encoding = "2"

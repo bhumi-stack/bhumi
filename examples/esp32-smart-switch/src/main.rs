@@ -82,7 +82,7 @@ fn main() -> anyhow::Result<()> {
     info!("Device ID: {}", device_state.id52());
 
     // Start BLE server (always running for provisioning)
-    let device_name = format!("Bhumi-{}", &device_state.id52()[..8]);
+    let device_name = format!("Bhumi-Switch-{}", &device_state.id52()[..8]);
     let ble_state = ble::start_ble_server(&device_name);
     info!("BLE provisioning enabled");
 

@@ -1,9 +1,10 @@
 [package]
-name = "bhumi-esp32"
+name = "esp32-smart-switch"
 version = "0.1.0"
 edition = "2021"
 authors = ["Amit Upadhyay <upadhyay@gmail.com>"]
 license = "UPL-1.0"
+description = "Example ESP32 smart switch using Bhumi MCU library"
 
 [dependencies]
 esp-idf-svc = { version = "0.51", features = ["alloc"] }
@@ -16,8 +17,9 @@ esp-idf-sys = { version = "0.36", features = ["binstart"] }
 esp32-nimble = "0.11"
 
 # bhumi dependencies - no async, no keyring
-bhumi-proto = { path = "../bhumi-proto", default-features = false }
-fastn-id52 = { path = "../fastn-id52", default-features = false }
+bhumi-mcu = { path = "../../bhumi-mcu" }
+bhumi-proto = { path = "../../bhumi-proto", default-features = false }
+fastn-id52 = { path = "../../fastn-id52", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"

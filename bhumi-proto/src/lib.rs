@@ -1,5 +1,7 @@
 //! Bhumi wire protocol - message types and framing
 
+pub mod ble;
+
 use std::io::{self, Read, Write};
 
 // Message types

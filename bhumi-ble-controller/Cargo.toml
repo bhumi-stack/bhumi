@@ -1,18 +1,13 @@
 [package]
-name = "bhumi-ble"
+name = "bhumi-ble-controller"
 version = "0.1.0"
 edition.workspace = true
 authors.workspace = true
-description = "BLE provisioning tool for Bhumi devices"
+description = "BLE client for provisioning Bhumi IoT devices"
 license.workspace = true
 
-[[bin]]
-name = "bhumi-ble"
-path = "src/main.rs"
-
 [dependencies]
+bhumi-proto = { path = "../bhumi-proto" }
 btleplug = "0.11"
 tokio = { workspace = true }
-clap = { workspace = true }
 uuid = "1"
-futures = "0.3"
