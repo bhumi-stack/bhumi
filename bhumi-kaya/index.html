@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bhumi Kaya - Tactile Interface Prototype</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2rem;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 300;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: #888;
+        }
+
+        /* 3x3 Tactile Grid (The "Patch") */
+        .patch {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            padding: 20px;
+            background: #0f0f1a;
+            border-radius: 16px;
+            box-shadow: 0 0 40px rgba(100, 100, 255, 0.1);
+        }
+
+        .cell {
+            width: 80px;
+            height: 80px;
+            background: #2a2a4a;
+            border-radius: 12px;
+            transition: all 0.15s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            color: #555;
+        }
+
+        .cell.active {
+            background: #6366f1;
+            box-shadow: 0 0 30px rgba(99, 102, 241, 0.6);
+            transform: scale(1.05);
+        }
+
+        .cell.pulse {
+            animation: pulse 0.3s ease;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+
+        /* Chord Input Display */
+        .input-display {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
+
+        .hand {
+            display: flex;
+            gap: 4px;
+        }
+
+        .key {
+            width: 44px;
+            height: 44px;
+            background: #2a2a4a;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: monospace;
+            font-size: 1.1rem;
+            transition: all 0.1s ease;
+        }
+
+        .key.pressed {
+            background: #10b981;
+            color: #000;
+            transform: translateY(2px);
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.5);
+        }
+
+        .space-key {
+            width: 120px;
+            background: #3a3a5a;
+        }
+
+        .space-key.pressed {
+            background: #f59e0b;
+            color: #000;
+        }
+
+        /* Status/Output */
+        .status {
+            text-align: center;
+            min-height: 60px;
+        }
+
+        .chord-output {
+            font-family: monospace;
+            font-size: 1.5rem;
+            color: #6366f1;
+            margin-bottom: 0.5rem;
+        }
+
+        .message {
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        /* Instructions */
+        .instructions {
+            position: fixed;
+            bottom: 20px;
+            font-size: 0.8rem;
+            color: #555;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>Bhumi Kaya</h1>
+
+    <!-- 3x3 Tactile Grid -->
+    <div class="patch">
+        <div class="cell" data-pos="0">1</div>
+        <div class="cell" data-pos="1">2</div>
+        <div class="cell" data-pos="2">3</div>
+        <div class="cell" data-pos="3">4</div>
+        <div class="cell" data-pos="4">5</div>
+        <div class="cell" data-pos="5">6</div>
+        <div class="cell" data-pos="6">7</div>
+        <div class="cell" data-pos="7">8</div>
+        <div class="cell" data-pos="8">9</div>
+    </div>
+
+    <!-- Chord Input Display -->
+    <div class="input-display">
+        <div class="hand left-hand">
+            <div class="key" data-key="f">F</div>
+            <div class="key" data-key="d">D</div>
+            <div class="key" data-key="s">S</div>
+            <div class="key" data-key="a">A</div>
+        </div>
+        <div class="key space-key" data-key=" ">SPACE</div>
+        <div class="hand right-hand">
+            <div class="key" data-key="j">J</div>
+            <div class="key" data-key="k">K</div>
+            <div class="key" data-key="l">L</div>
+            <div class="key" data-key=";">;</div>
+        </div>
+    </div>
+
+    <!-- Status Display -->
+    <div class="status">
+        <div class="chord-output" id="chordOutput">Ready</div>
+        <div class="message" id="message">Press keys to create chords, space to send</div>
+    </div>
+
+    <div class="instructions">
+        Left hand: F D S A | Right hand: J K L ; | Space: Send/Mode
+    </div>
+
+    <script src="kaya.js"></script>
+</body>
+</html>
