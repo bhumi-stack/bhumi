@@ -97,6 +97,89 @@ timing/sequences, the bandwidth is sufficient for:
 4. **Eyes-free operation** - The entire interaction should work without looking
    at anything.
 
+## Core Concepts
+
+The tactile OS is built on three Sanskrit concepts:
+
+### Bhumika (भूमिका) - Role/Mode
+
+Like vim's modes, but reframed: instead of the *computer* switching modes, the
+*human* assumes a role. This is augmented humanity - you become more, rather than
+operating a separate entity.
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Default Bhumika                                    │
+│  ├── Lekha (लेखा) - Writing/Text input             │
+│  ├── Sanchara (संचार) - Navigation                 │
+│  ├── Sankhya (संख्या) - Numbers/Calculator         │
+│  ├── Varta (वार्ता) - Communication/Messages       │
+│  └── ...                                            │
+└─────────────────────────────────────────────────────┘
+```
+
+Each bhumika defines its own set of chord→action mappings. The same chord does
+different things in different bhumikas. Switching bhumikas is itself a chord
+(likely space + a modifier).
+
+### Kriya (क्रिया) - Action
+
+A kriya is an action bound to a chord within a bhumika. Examples:
+
+| Bhumika   | Chord | Kriya                    |
+|-----------|-------|--------------------------|
+| Default   | F     | Enter Lekha (writing)    |
+| Default   | J     | Enter Sanchara (nav)     |
+| Lekha     | F     | Type letter 'a'          |
+| Lekha     | FD    | Type letter 'b'          |
+| Sanchara  | F     | Move left                |
+| Sanchara  | J     | Move right               |
+
+Kriyas can be:
+- **Instant** - happen immediately on chord release
+- **Continuous** - happen while chord is held
+- **Transitional** - switch to a different bhumika
+
+### Pratyaya (प्रत्यय) - Percept/Glyph
+
+A pratyaya is what you perceive - the tactile pattern on the 3x3 grid. It's the
+system's way of communicating back to you.
+
+```
+Pratyaya examples:
+
+  ●○○     ○●○     ●●●     ○○○
+  ○○○  =  ○●○  =  ○○○  =  ○●○  = ...
+  ○○○     ○●○     ○○○     ○○○
+  'left'  'center' 'top'  'ready'
+```
+
+Pratyayas can be:
+- **Static** - a single pattern held
+- **Sequential** - patterns that animate/flow
+- **Rhythmic** - pulsing patterns with timing information
+
+The key insight: pratyayas are not "displayed" to you - they are *felt*. You
+don't look at the output, you experience it directly through your skin. This
+creates a tighter feedback loop than visual interfaces.
+
+### The Loop
+
+```
+Human assumes Bhumika (role)
+       │
+       ▼
+Human performs Kriya (chord input)
+       │
+       ▼
+System responds with Pratyaya (tactile feedback)
+       │
+       ▼
+Human perceives, continues or changes Bhumika
+       │
+       └──────────────────────────────┘
+```
+
 ## Running the Prototype
 
 ```bash
@@ -125,6 +208,9 @@ The skin is our largest organ. It's time we used it for computing.
 
 - **Bhumi** (भूमि): Earth, ground, foundation
 - **Kaya** (काया): Body, embodiment
+- **Bhumika** (भूमिका): Role, character (as in theater)
+- **Kriya** (क्रिया): Action, deed, verb
+- **Pratyaya** (प्रत्यय): Perception, concept, conviction
 
-Together: "Embodied foundation" - computing that is grounded in the physical
-body rather than abstracted onto screens.
+**Bhumi Kaya**: "Embodied foundation" - computing grounded in the physical body
+rather than abstracted onto screens.

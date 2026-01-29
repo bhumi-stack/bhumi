@@ -1,231 +1,490 @@
 // Bhumi Kaya - Tactile Interface Prototype
-// Chording keyboard input -> 3x3 tactile grid output
+// Keys: 1=F/J, 2=D/K, 3=S/L, 4=A/;
+// Pratyaya: 2x4 Braille (8 dots, 256 patterns)
 
-// Valid chord keys
-const LEFT_KEYS = ['f', 'd', 's', 'a'];
-const RIGHT_KEYS = ['j', 'k', 'l', ';'];
-const ALL_CHORD_KEYS = [...LEFT_KEYS, ...RIGHT_KEYS];
+const LEFT_KEYS = { 'a': '1', 's': '2', 'd': '3', 'f': '4' };
+const RIGHT_KEYS = { 'j': '1', 'k': '2', 'l': '3', ';': '4' };
+const NUM_KEYS = { '1': '1', '2': '2', '3': '3', '4': '4' };
+const KEY_TO_NUM = { ...LEFT_KEYS, ...RIGHT_KEYS, ...NUM_KEYS };
 
-// Currently pressed keys
-const pressedKeys = new Set();
+const AUTO_CANCEL_MS = 2000;
 
-// DOM elements
-const cells = document.querySelectorAll('.cell');
-const keyElements = document.querySelectorAll('.key');
-const chordOutput = document.getElementById('chordOutput');
-const message = document.getElementById('message');
-
-// Convert chord to binary representation
-// Left hand: f=8, d=4, s=2, a=1
-// Right hand: j=8, k=4, l=2, ;=1
-function chordToBinary(keys) {
-    let left = 0;
-    let right = 0;
-
-    for (const key of keys) {
-        const leftIdx = LEFT_KEYS.indexOf(key);
-        if (leftIdx !== -1) {
-            left |= (1 << (3 - leftIdx));
-        }
-        const rightIdx = RIGHT_KEYS.indexOf(key);
-        if (rightIdx !== -1) {
-            right |= (1 << (3 - rightIdx));
-        }
-    }
-
-    return { left, right, combined: (left << 4) | right };
+// Braille: dots 1-8, layout: 1 4 / 2 5 / 3 6 / 7 8
+function patternFromDots(...dots) {
+    const p = [0, 0, 0, 0, 0, 0, 0, 0];
+    dots.forEach(d => { if (d >= 1 && d <= 8) p[d - 1] = 1; });
+    return p;
 }
 
-// Convert chord to a display string
-function chordToString(keys) {
-    const sorted = [...keys].sort((a, b) => {
-        const order = [...LEFT_KEYS, ' ', ...RIGHT_KEYS];
-        return order.indexOf(a) - order.indexOf(b);
+function patternToBraille(pattern) {
+    let code = 0x2800;
+    [1, 2, 4, 8, 16, 32, 64, 128].forEach((bit, i) => {
+        if (pattern[i]) code += bit;
     });
-    return sorted.join('').toUpperCase().replace(' ', '_');
+    return String.fromCharCode(code);
 }
 
-// Map chord patterns to 3x3 grid patterns
-// Each pattern is an array of 9 booleans (or intensity values 0-1)
-const CHORD_PATTERNS = {
-    // Single keys - corners and edges
-    'F': [1,0,0, 0,0,0, 0,0,0],
-    'D': [0,1,0, 0,0,0, 0,0,0],
-    'S': [0,0,1, 0,0,0, 0,0,0],
-    'A': [0,0,0, 1,0,0, 0,0,0],
-    'J': [0,0,0, 0,0,1, 0,0,0],
-    'K': [0,0,0, 0,0,0, 1,0,0],
-    'L': [0,0,0, 0,0,0, 0,1,0],
-    ';': [0,0,0, 0,0,0, 0,0,1],
-
-    // Two-key chords - lines and diagonals
-    'FD': [1,1,0, 0,0,0, 0,0,0],
-    'DS': [0,1,1, 0,0,0, 0,0,0],
-    'FS': [1,0,1, 0,0,0, 0,0,0],
-    'FA': [1,0,0, 1,0,0, 0,0,0],
-    'DA': [0,1,0, 1,0,0, 0,0,0],
-    'SA': [0,0,1, 1,0,0, 0,0,0],
-
-    'JK': [0,0,0, 0,0,0, 1,1,0],
-    'KL': [0,0,0, 0,0,0, 0,1,1],
-    'JL': [0,0,0, 0,0,0, 1,0,1],
-    'J;': [0,0,0, 0,0,1, 0,0,1],
-    'K;': [0,0,0, 0,0,0, 1,0,1],
-    'L;': [0,0,0, 0,0,0, 0,1,1],
-
-    // Three-key chords - patterns
-    'FDS': [1,1,1, 0,0,0, 0,0,0],
-    'FDA': [1,1,0, 1,0,0, 0,0,0],
-    'FSA': [1,0,1, 1,0,0, 0,0,0],
-    'DSA': [0,1,1, 1,0,0, 0,0,0],
-
-    'JKL': [0,0,0, 0,0,0, 1,1,1],
-    'JK;': [0,0,0, 0,0,1, 1,1,0],
-    'JL;': [0,0,0, 0,0,1, 1,0,1],
-    'KL;': [0,0,0, 0,0,1, 0,1,1],
-
-    // Four-key chords - full patterns
-    'FDSA': [1,1,1, 1,0,0, 0,0,0],
-    'JKL;': [0,0,0, 0,0,1, 1,1,1],
-
-    // Cross-hand chords - center patterns
-    'FJ': [1,0,0, 0,1,0, 0,0,1],
-    'AJ': [0,0,0, 1,1,1, 0,0,0],
-    'F;': [1,0,1, 0,1,0, 1,0,1],
-    'A;': [0,0,0, 1,1,1, 0,0,0],
-
-    // Center
-    '_': [0,0,0, 0,1,0, 0,0,0],  // Space alone = center
-
-    // Full grid
-    'FDSA_JKL;': [1,1,1, 1,1,1, 1,1,1],
+// Global pratyayas (recognized patterns)
+const globalPratyayas = {
+    '24': { label: 'cancelled', pattern: patternFromDots(2, 4) },
+    '1478': { label: 'error', pattern: patternFromDots(1, 4, 7, 8) },
+    '12345678': { label: 'all', pattern: patternFromDots(1, 2, 3, 4, 5, 6, 7, 8) },
+    '25': { label: 'confirm', pattern: patternFromDots(2, 5) },
 };
 
-// Display pattern on the 3x3 grid
-function displayPattern(pattern) {
-    cells.forEach((cell, idx) => {
-        const active = pattern[idx];
-        cell.classList.toggle('active', active);
-        if (active) {
-            cell.classList.add('pulse');
-            setTimeout(() => cell.classList.remove('pulse'), 300);
+const PRATYAYA = {
+    empty: patternFromDots(),
+    all: patternFromDots(1, 2, 3, 4, 5, 6, 7, 8),
+    cancelled: patternFromDots(2, 4),
+    error: patternFromDots(1, 4, 7, 8),
+    confirm: patternFromDots(2, 5),
+    colon: patternFromDots(2, 5),  // separator for time
+};
+
+// Braille digit patterns (standard braille numbers + custom 10-12)
+const DIGIT_PRATYAYA = [
+    patternFromDots(2, 4, 5),     // 0 = ⠚
+    patternFromDots(1),           // 1 = ⠁
+    patternFromDots(1, 2),        // 2 = ⠃
+    patternFromDots(1, 4),        // 3 = ⠉
+    patternFromDots(1, 4, 5),     // 4 = ⠙
+    patternFromDots(1, 5),        // 5 = ⠑
+    patternFromDots(1, 2, 4),     // 6 = ⠋
+    patternFromDots(1, 2, 4, 5),  // 7 = ⠛
+    patternFromDots(1, 2, 5),     // 8 = ⠓
+    patternFromDots(2, 4),        // 9 = ⠊
+    patternFromDots(7, 8),        // 10 = ⣀ (tens marker)
+    patternFromDots(1, 7, 8),     // 11 = ⣁ (1 + tens marker)
+    patternFromDots(1, 2, 7, 8),  // 12 = ⣃ (2 + tens marker)
+];
+
+// Modes
+const modes = {
+    '1': {
+        name: 'Default',
+        pratyaya: patternFromDots(1),  // ⠁ dot 1
+        kriyas: {},
+        pratyayaLabels: {}
+    },
+    '12': {
+        name: 'Mode 12',
+        pratyaya: patternFromDots(1, 2),  // ⠃ dots 1,2
+        kriyas: {},
+        pratyayaLabels: {}
+    }
+};
+
+// Global kriyas - keys are chord sequences joined by '_'
+// e.g., '14' = single chord, '14_12' = chord 14 then chord 12
+const globalKriyas = {
+    '14': { action: 'queryMode' },
+    '': { action: 'replay' },  // empty = just space-space with no chords
+    '1234': { action: 'clear' },  // all four keys = clear/cancel input
+    '13': { action: 'getTime' },  // keys 1+3 = get current time
+};
+
+// State
+let currentMode = '1';
+let chordBuffer = [];
+let currentChord = new Set();
+let pressedKeys = new Set();
+let cancelTimer = null;
+let chordTimer = null;  // Timer for chord without space
+let lastPratyayaSequence = [];
+
+// Reading queue - for paginated pratyaya output
+let readingQueue = [];
+let isReading = false;
+
+// DOM
+const brailleDisplay = document.getElementById('brailleDisplay');
+const bufferDisplay = document.getElementById('bufferDisplay');
+const chordOutput = document.getElementById('chordOutput');
+const messageEl = document.getElementById('message');
+const keyElements = document.querySelectorAll('.key');
+const tabsContainer = document.getElementById('modeTabs');
+const modePanel = document.getElementById('modePanel');
+
+// Create "more" indicator element
+const moreIndicator = document.createElement('div');
+moreIndicator.id = 'moreIndicator';
+moreIndicator.textContent = '▼';
+moreIndicator.style.cssText = 'display:none; text-align:center; font-size:1.5rem; color:#f59e0b; animation:pulse 1s infinite;';
+const style = document.createElement('style');
+style.textContent = '@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }';
+document.head.appendChild(style);
+brailleDisplay.parentNode.insertBefore(moreIndicator, brailleDisplay.nextSibling);
+
+// Display
+function showBraille(pattern) {
+    brailleDisplay.textContent = patternToBraille(pattern);
+}
+
+function showBrailleSequence(patterns, interval = 300, record = true) {
+    if (record && patterns.length > 0) {
+        lastPratyayaSequence = patterns.filter(p => p.some(v => v));
+    }
+    let i = 0;
+    (function next() {
+        if (i < patterns.length) {
+            showBraille(patterns[i++]);
+            setTimeout(next, interval);
         }
-    });
+    })();
 }
 
-// Clear the grid
-function clearGrid() {
-    cells.forEach(cell => {
-        cell.classList.remove('active', 'pulse');
-    });
+// Paginated reading - space to advance
+function startReading(patterns, record = true) {
+    if (record && patterns.length > 0) {
+        lastPratyayaSequence = patterns.filter(p => p.some(v => v));
+    }
+    readingQueue = [...patterns];
+    isReading = true;
+    advanceReading();
 }
 
-// Update key visual state
+function advanceReading() {
+    if (readingQueue.length === 0) {
+        // Done reading
+        isReading = false;
+        moreIndicator.style.display = 'none';
+        showBraille(PRATYAYA.empty);
+        showMessage('Ready');
+        return;
+    }
+
+    // Brief clear before showing next pattern
+    showBraille(PRATYAYA.empty);
+    setTimeout(() => {
+        const pattern = readingQueue.shift();
+        showBraille(pattern);
+
+        if (readingQueue.length > 0) {
+            moreIndicator.style.display = 'block';
+            showMessage(`${readingQueue.length} more - press space`);
+        } else {
+            moreIndicator.style.display = 'none';
+            showMessage('Done - press space');
+        }
+    }, 80);
+}
+
+function cancelReading() {
+    readingQueue = [];
+    isReading = false;
+    moreIndicator.style.display = 'none';
+}
+
+function updateBufferDisplay() {
+    bufferDisplay.textContent = chordBuffer.join(' ');
+}
+
 function updateKeyDisplay() {
     keyElements.forEach(el => {
-        const key = el.dataset.key;
-        el.classList.toggle('pressed', pressedKeys.has(key));
+        el.classList.toggle('pressed', pressedKeys.has(el.dataset.key));
     });
 }
 
-// Get current chord string
-function getCurrentChord() {
-    const chordKeys = [...pressedKeys].filter(k => ALL_CHORD_KEYS.includes(k));
-    const hasSpace = pressedKeys.has(' ');
-
-    if (chordKeys.length === 0 && hasSpace) {
-        return '_';
-    }
-
-    let str = chordToString(chordKeys);
-    if (hasSpace && chordKeys.length > 0) {
-        str += '_';
-    }
-    return str;
+function showMessage(msg) {
+    messageEl.textContent = msg;
 }
 
-// Process the chord when space is released (or when chord is complete)
-function processChord() {
-    const chord = getCurrentChord();
-    chordOutput.textContent = chord || 'Empty';
+function renderModeTabs() {
+    tabsContainer.innerHTML = '';
+    Object.entries(modes).forEach(([code, mode]) => {
+        const tab = document.createElement('div');
+        tab.className = 'mode-tab' + (code === currentMode ? ' active' : '');
+        const braille = patternToBraille(mode.pratyaya);
+        // Always show braille, use different style if empty
+        const brailleClass = mode.pratyaya.some(v => v) ? 'tab-braille' : 'tab-braille empty-braille';
+        tab.innerHTML = `<b>${code}</b> ${mode.name} <span class="${brailleClass}">${braille || '⠀'}</span>`;
+        tab.onclick = () => switchMode(code);
+        tabsContainer.appendChild(tab);
+    });
+}
 
-    // Look up pattern
-    const pattern = CHORD_PATTERNS[chord];
-    if (pattern) {
-        displayPattern(pattern);
-        message.textContent = `Pattern: ${chord}`;
-    } else if (chord) {
-        // Generate a pattern based on binary representation
-        const chordKeys = [...pressedKeys].filter(k => ALL_CHORD_KEYS.includes(k));
-        const { left, right, combined } = chordToBinary(chordKeys);
-        message.textContent = `L:${left.toString(2).padStart(4,'0')} R:${right.toString(2).padStart(4,'0')}`;
+function renderModePanel() {
+    const mode = modes[currentMode];
+    const kriyas = Object.entries(mode.kriyas);
+    const modePratyayas = Object.entries(mode.pratyayaLabels);
+    const globalPratyayasList = Object.entries(globalPratyayas);
 
-        // Create pattern from binary - distribute across grid
-        const generatedPattern = [
-            (left & 8) ? 1 : 0, (left & 4) ? 1 : 0, (left & 2) ? 1 : 0,
-            (left & 1) ? 1 : 0, pressedKeys.has(' ') ? 1 : 0, (right & 8) ? 1 : 0,
-            (right & 4) ? 1 : 0, (right & 2) ? 1 : 0, (right & 1) ? 1 : 0,
-        ];
-        displayPattern(generatedPattern);
+    modePanel.innerHTML = `
+        <h3>Mode ${currentMode}: ${mode.name}</h3>
+
+        <div class="section">
+            <b>Kriyas:</b>
+            ${kriyas.length === 0 ? ' <span class="dim">(none)</span>' : ''}
+            ${kriyas.map(([c, k]) => `<span class="item"><span class="code">${c}__</span> ${k.label || k.action}</span>`).join('')}
+            <button class="add-btn" onclick="promptAddKriya()">+</button>
+        </div>
+
+        <div class="section">
+            <b>Mode Pratyayas:</b>
+            ${modePratyayas.length === 0 ? ' <span class="dim">(none)</span>' : ''}
+            ${modePratyayas.map(([p, l]) => {
+                const pattern = patternFromDots(...p.split('').map(Number));
+                return `<span class="item"><span class="braille">${patternToBraille(pattern)}</span> ${p} = ${l}</span>`;
+            }).join('')}
+            <button class="add-btn" onclick="promptAddPratyaya()">+</button>
+        </div>
+
+        <div class="section">
+            <b>Global Pratyayas:</b>
+            ${globalPratyayasList.map(([p, obj]) =>
+                `<span class="item"><span class="braille">${patternToBraille(obj.pattern)}</span> ${p} = ${obj.label}</span>`
+            ).join('')}
+        </div>
+
+        <div class="help">
+            <b>Global:</b>
+            <code>__</code> replay |
+            <code>13__</code> time |
+            <code>14__</code> query mode |
+            <code>14 [m]__</code> switch |
+            <code>1234__</code> clear |
+            Timeout: 2s
+        </div>
+        <div class="help" style="font-size: 1rem; margin-top: 0.5rem;">
+            <b>Digits:</b>
+            <span class="braille" style="font-size: 1.8rem;">⠚</span>=0
+            <span class="braille" style="font-size: 1.8rem;">⠁</span>=1
+            <span class="braille" style="font-size: 1.8rem;">⠃</span>=2
+            <span class="braille" style="font-size: 1.8rem;">⠉</span>=3
+            <span class="braille" style="font-size: 1.8rem;">⠙</span>=4
+            <span class="braille" style="font-size: 1.8rem;">⠑</span>=5
+            <span class="braille" style="font-size: 1.8rem;">⠋</span>=6
+            <span class="braille" style="font-size: 1.8rem;">⠛</span>=7
+            <span class="braille" style="font-size: 1.8rem;">⠓</span>=8
+            <span class="braille" style="font-size: 1.8rem;">⠊</span>=9
+            <span class="braille" style="font-size: 1.8rem;">⣀</span>=10
+            <span class="braille" style="font-size: 1.8rem;">⣁</span>=11
+            <span class="braille" style="font-size: 1.8rem;">⣃</span>=12
+        </div>
+    `;
+}
+
+// Input
+function clearTimers() {
+    if (cancelTimer) { clearTimeout(cancelTimer); cancelTimer = null; }
+    if (chordTimer) { clearTimeout(chordTimer); chordTimer = null; }
+}
+
+function startCancelTimer() {
+    clearTimers();
+    cancelTimer = setTimeout(() => {
+        showBrailleSequence([PRATYAYA.cancelled, PRATYAYA.cancelled, PRATYAYA.empty], 200, false);
+        showMessage('Cancelled');
+        resetInput();
+    }, AUTO_CANCEL_MS);
+}
+
+function startChordTimer() {
+    if (chordTimer) clearTimeout(chordTimer);
+    chordTimer = setTimeout(() => {
+        showBrailleSequence([PRATYAYA.cancelled, PRATYAYA.cancelled, PRATYAYA.empty], 200, false);
+        showMessage('Cancelled');
+        resetInput();
+    }, AUTO_CANCEL_MS);
+}
+
+function getCurrentChordString() {
+    return [...currentChord].sort().join('');
+}
+
+function resetInput() {
+    clearTimers();
+    chordBuffer = [];
+    currentChord.clear();
+    updateBufferDisplay();
+    chordOutput.textContent = '';
+    showMessage('Ready');
+}
+
+function processSpace() {
+    const chord = getCurrentChordString();
+    clearTimers();
+
+    // If in reading mode and no chord pressed, advance reading
+    if (isReading && chord === '') {
+        advanceReading();
+        return;
+    }
+
+    // Any chord cancels reading mode
+    if (isReading && chord !== '') {
+        cancelReading();
+    }
+
+    if (chord !== '') {
+        // Chord entered - add to buffer
+        chordBuffer.push(chord);
+        currentChord.clear();
+        updateBufferDisplay();
+        chordOutput.textContent = chord;
+        startCancelTimer();
     } else {
-        clearGrid();
-        message.textContent = 'Press keys to create chords, space to send';
+        // No chord - execute immediately
+        executeKriya();
     }
 }
 
-// Keyboard event handlers
+// Execution
+function executeKriya() {
+    clearTimers();
+
+    // Join buffer with '_' to form the kriya key
+    const seqStr = chordBuffer.join('_');
+    console.log('Execute:', seqStr || '(empty)');
+
+    // Mode switch: 14_<mode>
+    if (seqStr.startsWith('14_') && seqStr.length > 3) {
+        const targetMode = seqStr.slice(3);
+        if (modes[targetMode]) {
+            switchMode(targetMode);
+        } else {
+            showMessage(`Unknown mode: ${targetMode}`);
+            showBrailleSequence([PRATYAYA.all, PRATYAYA.empty, PRATYAYA.error, PRATYAYA.error, PRATYAYA.empty], 200);
+        }
+        resetInput();
+        return;
+    }
+
+    // Global kriyas
+    if (globalKriyas.hasOwnProperty(seqStr)) {
+        handleKriya(globalKriyas[seqStr]);
+        resetInput();
+        return;
+    }
+
+    // Mode kriyas
+    if (modes[currentMode].kriyas[seqStr]) {
+        handleKriya(modes[currentMode].kriyas[seqStr]);
+        resetInput();
+        return;
+    }
+
+    // Unknown
+    if (seqStr === '') {
+        showMessage('Nothing to do');
+    } else {
+        showMessage(`Unknown: ${seqStr}`);
+        showBrailleSequence([PRATYAYA.error, PRATYAYA.error, PRATYAYA.empty], 200);
+    }
+    resetInput();
+}
+
+function handleKriya(kriya) {
+    switch (kriya.action) {
+        case 'queryMode':
+            showMessage(`Mode: ${currentMode} (${modes[currentMode].name})`);
+            const mp = modes[currentMode].pratyaya;
+            if (mp.some(v => v)) {
+                showBrailleSequence([mp, PRATYAYA.empty], 400);
+            } else {
+                showBrailleSequence([PRATYAYA.confirm, PRATYAYA.empty], 300);
+            }
+            break;
+        case 'replay':
+            if (lastPratyayaSequence.length > 0) {
+                showMessage('Replay');
+                showBrailleSequence([...lastPratyayaSequence, PRATYAYA.empty], 300, false);
+            } else {
+                showMessage('Nothing to replay');
+            }
+            break;
+        case 'clear':
+            showMessage('Cleared');
+            showBraille(PRATYAYA.empty);
+            break;
+        case 'getTime':
+            const now = new Date();
+            // Convert to 12-hour format
+            let hour12 = now.getHours() % 12;
+            if (hour12 === 0) hour12 = 12;
+            const mins = now.getMinutes();
+            // If minutes <= 12, show as single pattern; otherwise tens + units
+            const timePatterns = [DIGIT_PRATYAYA[hour12]];
+            if (mins <= 12) {
+                timePatterns.push(DIGIT_PRATYAYA[mins]);
+            } else {
+                timePatterns.push(DIGIT_PRATYAYA[Math.floor(mins / 10)]);
+                timePatterns.push(DIGIT_PRATYAYA[mins % 10]);
+            }
+            startReading(timePatterns);
+            break;
+        default:
+            showMessage(`Action: ${kriya.action}`);
+    }
+}
+
+function switchMode(code) {
+    currentMode = code;
+    showMessage(`Mode: ${code}`);
+    const mp = modes[code].pratyaya;
+    if (mp.some(v => v)) {
+        showBrailleSequence([mp, PRATYAYA.empty], 400);
+    }
+    renderModeTabs();
+    renderModePanel();
+}
+
+// Add kriya/pratyaya
+window.promptAddKriya = function() {
+    const code = prompt('Chord sequence (e.g., "1", "12", "14_1"):');
+    if (!code || !/^[1-4_]+$/.test(code)) return;
+    if (globalKriyas.hasOwnProperty(code) || modes[currentMode].kriyas[code]) {
+        alert('Already exists!');
+        return;
+    }
+    const label = prompt('Action label:');
+    if (!label) return;
+    modes[currentMode].kriyas[code] = { action: 'custom', label };
+    renderModePanel();
+};
+
+window.promptAddPratyaya = function() {
+    const pattern = prompt('Dots (1-8, e.g., "135"):');
+    if (!pattern || !/^[1-8]+$/.test(pattern)) return;
+    const label = prompt('Label:');
+    if (!label) return;
+    modes[currentMode].pratyayaLabels[pattern] = label;
+    renderModePanel();
+};
+
+// Events
 document.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();
-
-    // Only track our chord keys and space
-    if (ALL_CHORD_KEYS.includes(key) || key === ' ') {
+    if (KEY_TO_NUM[key] || key === ' ') {
         e.preventDefault();
-
         if (!pressedKeys.has(key)) {
             pressedKeys.add(key);
             updateKeyDisplay();
-
-            // Live preview of current chord
-            const chord = getCurrentChord();
-            chordOutput.textContent = chord || '...';
+            if (KEY_TO_NUM[key]) {
+                currentChord.add(KEY_TO_NUM[key]);
+                chordOutput.textContent = getCurrentChordString();
+                startChordTimer();  // Start timer when chord keys pressed
+            }
         }
     }
 });
 
 document.addEventListener('keyup', (e) => {
     const key = e.key.toLowerCase();
-
     if (pressedKeys.has(key)) {
-        // If space is released, that's the "send" action
-        if (key === ' ') {
-            processChord();
-        }
-
         pressedKeys.delete(key);
         updateKeyDisplay();
-
-        // If all keys released, process whatever we had
-        if (pressedKeys.size === 0) {
-            // Small delay to allow for chord completion
-            setTimeout(() => {
-                if (pressedKeys.size === 0) {
-                    clearGrid();
-                    chordOutput.textContent = 'Ready';
-                }
-            }, 500);
+        if (key === ' ') {
+            processSpace();
         }
     }
 });
 
-// Prevent space from scrolling
 window.addEventListener('keydown', (e) => {
-    if (e.key === ' ') {
-        e.preventDefault();
-    }
+    if (e.key === ' ') e.preventDefault();
 });
 
-// Initialize
-console.log('Bhumi Kaya initialized');
-console.log('Left hand: F D S A');
-console.log('Right hand: J K L ;');
-console.log('Space: Send/Confirm');
+// Init
+renderModeTabs();
+renderModePanel();
+showMessage('Ready');

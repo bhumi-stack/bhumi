@@ -3,185 +3,220 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bhumi Kaya - Tactile Interface Prototype</title>
+    <title>Bhumi Kaya</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #1a1a2e;
             color: #eee;
             min-height: 100vh;
+            padding: 0.5rem;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 1rem;
+            font-weight: 300;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: #555;
+            text-align: center;
+        }
+
+        /* Braille display */
+        .braille-display {
+            font-size: 8rem;
+            line-height: 1;
+            text-align: center;
+            font-family: "Noto Sans Symbols 2", "Segoe UI Symbol", "Apple Symbols", sans-serif;
+            color: #6366f1;
+            background: #0f0f1a;
+            border-radius: 12px;
+            padding: 0.5rem;
+            margin: 0.5rem 0;
+        }
+
+        /* Key row */
+        .input-row {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.3rem;
+        }
+
+        .hand { display: flex; gap: 2px; }
+
+        .key {
+            width: 36px;
+            height: 36px;
+            background: #2a2a4a;
+            border-radius: 5px;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 2rem;
+            font-family: monospace;
         }
 
-        h1 {
-            font-size: 1.5rem;
-            font-weight: 300;
-            letter-spacing: 0.2em;
-            text-transform: uppercase;
+        .key-num { font-size: 0.85rem; font-weight: bold; color: #6366f1; }
+        .key-letter { font-size: 0.45rem; color: #444; }
+        .key.pressed { background: #10b981; }
+        .key.pressed .key-num, .key.pressed .key-letter { color: #000; }
+
+        .space-key {
+            width: 50px;
+            background: #3a3a5a;
+            font-size: 1rem;
+            color: #666;
+        }
+        .space-key.pressed { background: #f59e0b; color: #000; }
+
+        /* Status */
+        .status {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.3rem 0.5rem;
+            background: #0f0f1a;
+            border-radius: 6px;
+            margin-bottom: 0.3rem;
+            font-family: monospace;
+            font-size: 0.8rem;
+        }
+
+        .buffer { color: #f59e0b; min-width: 60px; }
+        .chord-output { color: #10b981; min-width: 40px; text-align: right; }
+        .message { color: #888; flex: 1; text-align: center; }
+
+        /* Mode tabs */
+        .mode-tabs {
+            display: flex;
+            gap: 0.25rem;
+            margin-bottom: 0.3rem;
+        }
+
+        .mode-tab {
+            padding: 0.25rem 0.5rem;
+            background: #2a2a4a;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+        }
+        .mode-tab:hover { background: #3a3a5a; }
+        .mode-tab.active { background: #6366f1; }
+        .mode-tab .tab-braille {
+            font-family: "Noto Sans Symbols 2", "Segoe UI Symbol", sans-serif;
+            font-size: 1.2rem;
+            vertical-align: middle;
+        }
+        .mode-tab .empty-braille {
+            opacity: 0.3;
+            border: 1px dashed #666;
+            border-radius: 2px;
+        }
+
+        /* Mode panel */
+        .mode-panel {
+            background: #0f0f1a;
+            border-radius: 6px;
+            padding: 0.4rem;
+            font-size: 0.75rem;
+        }
+
+        .mode-panel h3 {
+            font-size: 0.7rem;
+            color: #666;
+            margin-bottom: 0.25rem;
+        }
+
+        .section {
+            margin-bottom: 0.3rem;
+        }
+
+        .section b {
             color: #888;
         }
 
-        /* 3x3 Tactile Grid (The "Patch") */
-        .patch {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
-            padding: 20px;
-            background: #0f0f1a;
-            border-radius: 16px;
-            box-shadow: 0 0 40px rgba(100, 100, 255, 0.1);
-        }
+        .dim { color: #444; }
 
-        .cell {
-            width: 80px;
-            height: 80px;
+        .item {
+            display: inline-block;
             background: #2a2a4a;
-            border-radius: 12px;
-            transition: all 0.15s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.7rem;
-            color: #555;
+            padding: 0.15rem 0.3rem;
+            border-radius: 3px;
+            margin: 0.1rem;
         }
 
-        .cell.active {
-            background: #6366f1;
-            box-shadow: 0 0 30px rgba(99, 102, 241, 0.6);
-            transform: scale(1.05);
-        }
+        .code { color: #6366f1; font-family: monospace; }
 
-        .cell.pulse {
-            animation: pulse 0.3s ease;
-        }
-
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.1); }
-            100% { transform: scale(1); }
-        }
-
-        /* Chord Input Display */
-        .input-display {
-            display: flex;
-            gap: 2rem;
-            align-items: center;
-        }
-
-        .hand {
-            display: flex;
-            gap: 4px;
-        }
-
-        .key {
-            width: 44px;
-            height: 44px;
-            background: #2a2a4a;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-family: monospace;
+        .braille {
+            font-family: "Noto Sans Symbols 2", "Segoe UI Symbol", sans-serif;
             font-size: 1.1rem;
-            transition: all 0.1s ease;
+            vertical-align: middle;
         }
 
-        .key.pressed {
-            background: #10b981;
-            color: #000;
-            transform: translateY(2px);
-            box-shadow: 0 0 20px rgba(16, 185, 129, 0.5);
-        }
-
-        .space-key {
-            width: 120px;
+        .add-btn {
             background: #3a3a5a;
-        }
-
-        .space-key.pressed {
-            background: #f59e0b;
-            color: #000;
-        }
-
-        /* Status/Output */
-        .status {
-            text-align: center;
-            min-height: 60px;
-        }
-
-        .chord-output {
-            font-family: monospace;
-            font-size: 1.5rem;
-            color: #6366f1;
-            margin-bottom: 0.5rem;
-        }
-
-        .message {
-            font-size: 0.9rem;
+            border: none;
             color: #666;
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.7rem;
         }
 
-        /* Instructions */
-        .instructions {
-            position: fixed;
-            bottom: 20px;
-            font-size: 0.8rem;
-            color: #555;
-            text-align: center;
+        .help {
+            color: #666;
+            padding-top: 0.25rem;
+            border-top: 1px solid #2a2a4a;
+            font-size: 0.7rem;
+        }
+
+        .help code {
+            background: #2a2a4a;
+            padding: 0.1rem 0.2rem;
+            border-radius: 2px;
+            color: #6366f1;
         }
     </style>
 </head>
 <body>
-    <h1>Bhumi Kaya</h1>
+    <div class="container">
+        <h1>Bhumi Kaya</h1>
 
-    <!-- 3x3 Tactile Grid -->
-    <div class="patch">
-        <div class="cell" data-pos="0">1</div>
-        <div class="cell" data-pos="1">2</div>
-        <div class="cell" data-pos="2">3</div>
-        <div class="cell" data-pos="3">4</div>
-        <div class="cell" data-pos="4">5</div>
-        <div class="cell" data-pos="5">6</div>
-        <div class="cell" data-pos="6">7</div>
-        <div class="cell" data-pos="7">8</div>
-        <div class="cell" data-pos="8">9</div>
-    </div>
+        <div class="braille-display" id="brailleDisplay">⠀</div>
 
-    <!-- Chord Input Display -->
-    <div class="input-display">
-        <div class="hand left-hand">
-            <div class="key" data-key="f">F</div>
-            <div class="key" data-key="d">D</div>
-            <div class="key" data-key="s">S</div>
-            <div class="key" data-key="a">A</div>
+        <div class="input-row">
+            <div class="hand">
+                <div class="key" data-key="a"><span class="key-num">1</span><span class="key-letter">A</span></div>
+                <div class="key" data-key="s"><span class="key-num">2</span><span class="key-letter">S</span></div>
+                <div class="key" data-key="d"><span class="key-num">3</span><span class="key-letter">D</span></div>
+                <div class="key" data-key="f"><span class="key-num">4</span><span class="key-letter">F</span></div>
+            </div>
+            <div class="key space-key" data-key=" ">_</div>
+            <div class="hand">
+                <div class="key" data-key="j"><span class="key-num">1</span><span class="key-letter">J</span></div>
+                <div class="key" data-key="k"><span class="key-num">2</span><span class="key-letter">K</span></div>
+                <div class="key" data-key="l"><span class="key-num">3</span><span class="key-letter">L</span></div>
+                <div class="key" data-key=";"><span class="key-num">4</span><span class="key-letter">;</span></div>
+            </div>
         </div>
-        <div class="key space-key" data-key=" ">SPACE</div>
-        <div class="hand right-hand">
-            <div class="key" data-key="j">J</div>
-            <div class="key" data-key="k">K</div>
-            <div class="key" data-key="l">L</div>
-            <div class="key" data-key=";">;</div>
+
+        <div class="status">
+            <span class="buffer" id="bufferDisplay"></span>
+            <span class="message" id="message">Ready</span>
+            <span class="chord-output" id="chordOutput"></span>
         </div>
-    </div>
 
-    <!-- Status Display -->
-    <div class="status">
-        <div class="chord-output" id="chordOutput">Ready</div>
-        <div class="message" id="message">Press keys to create chords, space to send</div>
-    </div>
-
-    <div class="instructions">
-        Left hand: F D S A | Right hand: J K L ; | Space: Send/Mode
+        <div class="mode-tabs" id="modeTabs"></div>
+        <div class="mode-panel" id="modePanel"></div>
     </div>
 
     <script src="kaya.js"></script>
